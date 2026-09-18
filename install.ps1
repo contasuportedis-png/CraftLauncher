@@ -11,12 +11,31 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::
 
 Write-Host '⛏️  Instalando CraftLauncher...' -ForegroundColor Green
 
-function Get-JavaMajor {
+function Get-JavaOutput {
+  # Roda `java -version` redirecionando para ARQUIVO: evita que o stderr vire
+  # NativeCommandError no PowerShell 5.1 (que quebra com $ErrorActionPreference='Stop').
+  $tmp = "$env:TEMP\cl-java.txt"
   try {
-    $out = & java -version 2>&1 | Out-String
-    if ($out -match '"(\d+)\.') { return [int]$Matches[1] }
-  } catch {}
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    $p = Start-Process -FilePath 'java' -ArgumentList '-version' -NoNewWindow -Wait -PassThru `
+      -RedirectStandardOutput $tmp -RedirectStandardError $tmp -ErrorAction Stop
+    $out = ''
+    if (Test-Path $tmp) { $out = Get-Content $tmp -Raw -ErrorAction SilentlyContinue }
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    return $out
+  } catch { return '' }
+}
+
+function Get-JavaMajor {
+  $out = Get-JavaOutput
+  if ($out -match '"(\d+)\.') { return [int]$Matches[1] }
   return 0
+}
+
+function Get-JavaDesc {
+  $out = Get-JavaOutput
+  if ($out) { return ($out.Split("`n")[0].Trim()) }
+  return 'Java'
 }
 
 function Install-JavaAuto {
@@ -24,7 +43,10 @@ function Install-JavaAuto {
   try {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
       Write-Host 'Instalando Java 21 via winget...' -ForegroundColor Yellow
-      & winget install -e --id EclipseAdoptium.Temurin.21.JRE --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+      $wlog = "$env:TEMP\cl-winget.log"
+      $wp = Start-Process winget -ArgumentList 'install','-e','--id','EclipseAdoptium.Temurin.21.JRE','--silent','--accept-package-agreements','--accept-source-agreements','--disable-interactivity' `
+        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $wlog -RedirectStandardError $wlog -ErrorAction Stop
+      Remove-Item $wlog -Force -ErrorAction SilentlyContinue
       $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
       if ((Get-JavaMajor) -ge 17) { return $true }
       Write-Host 'winget não resolveu, tentando modo portable...' -ForegroundColor Yellow
@@ -68,7 +90,7 @@ if ((Get-JavaMajor) -lt 17) {
     exit 1
   }
 }
-Write-Host ("☕ " + ((& java -version 2>&1 | Out-String).Split("`n")[0].Trim()))
+Write-Host ("☕ " + (Get-JavaDesc))
 
 try {
   Write-Host '🔎 Localizando última versão...'
