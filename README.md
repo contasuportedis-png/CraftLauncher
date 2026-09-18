@@ -9,14 +9,13 @@ curl -fsSL https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/m
 Isso instala o Java 21 (se faltar), baixa o AppImage da última release e cria o atalho no menu. Depois é só rodar `CraftLauncher`.
 
 ## Windows 🪟
-- **Instalador pronto**: `dist/CraftLauncher Setup 2.0.0.exe` (rode e use — sem Node necessário)
-- Ou rode do código: instale [Node LTS](https://nodejs.org) + [Java 21 (Adoptium)](https://adoptium.net), depois:
-```bat
-cd minecraft-launcher
-npm install
-npm start
+**Instalação em 1 comando** (abra o PowerShell e cole):
+```powershell
+irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex
 ```
-- O launcher detecta sozinho Javas em `C:\Program Files\Java`, Adoptium, Corretto e até o runtime do launcher oficial da Mojang. Se não achar, aponte na aba Config.
+Isso instala o Java 21 (se faltar), baixa o instalador da última release e instala silenciosamente. Depois abra `CraftLauncher` no Menu Iniciar.
+- Alternativa manual: baixe `CraftLauncher.Setup.2.0.0.exe` na [release](https://github.com/contasuportedis-png/CraftLauncher/releases) (+ Java 21 em https://adoptium.net).
+- Ou rode do código: instale [Node LTS](https://nodejs.org), depois `npm install` + `npm start` na pasta.
 - Requer internet no primeiro launch de cada versão (~200–500 MB).
 
 ## Linux 🐧
