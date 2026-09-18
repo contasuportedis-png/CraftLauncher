@@ -102,7 +102,7 @@ async function loadAll() {
 
   await Promise.allSettled([
     refreshHeader(), loadVersionSelect(), loadVersionGrid(true),
-    loadLoaders(), loadSkins(), loadMods(), loadConfig(), loadNews()
+    loadLoaders(), loadSkins(), loadMods(), loadConfig(), loadNews(), refreshJavaNeed()
   ]);
 }
 
@@ -457,7 +457,7 @@ $('username').oninput = refreshHero;
 $('ramMin').oninput = () => { $('ramMinVal').textContent = $('ramMin').value + 'G'; refreshHero(); };
 $('ramMax').oninput = () => { $('ramMaxVal').textContent = $('ramMax').value + 'G'; refreshHero(); };
 $('width').oninput = refreshHero; $('height').oninput = refreshHero; $('fullscreen').onchange = refreshHero;
-$('version').onchange = async () => { refreshHero(); await collectAndSave(); loadLoaders(); loadVersionGrid(); };
+$('version').onchange = async () => { refreshHero(); refreshJavaNeed(); await collectAndSave(); loadLoaders(); loadVersionGrid(); };
 $('btnReloadVersions').onclick = async () => { await window.api.allVersions({ force: true }); await loadVersionSelect(); loadVersionGrid(true); toast('Lista de versões atualizada'); };
 $('verSearch').oninput = () => loadVersionGrid();
 $('fRelease').onchange = () => loadVersionGrid(true);
@@ -644,6 +644,29 @@ $('btnJavaTest').onclick = async () => {
   $('javaOut').textContent = 'Testando…';
   $('javaOut').textContent = await window.api.javaVersion($('javaPreset').value || $('javaPath').value);
 };
+$('btnJavaGet').onclick = async (e) => {
+  const btn = e.target.closest('button');
+  btn.disabled = true;
+  const old = btn.innerHTML;
+  btn.textContent = '⏳ Baixando Java (~190 MB)… acompanhe na aba Modloaders';
+  goTab('modloaders');
+  log('Baixando Java recomendado para MC ' + $('version').value + '…');
+  const r = await window.api.provisionJava($('version').value);
+  btn.disabled = false;
+  btn.innerHTML = old;
+  if (r.ok) {
+    $('javaOut').textContent = `Pronto: Java ${r.major} em\n${r.bin}`;
+    toast(`Java ${r.major} pronto ✅ (usado automaticamente ao jogar)`);
+    log(`Java ${r.major} pronto: ${r.bin}`);
+  } else {
+    $('javaOut').textContent = 'Falha: ' + r.error;
+    toast('Falha: ' + r.error, true);
+  }
+};
+async function refreshJavaNeed() {
+  try { $('javaNeed').textContent = 'Java ' + (await window.api.javaRequired($('version').value)); }
+  catch { $('javaNeed').textContent = 'automático'; }
+}
 document.querySelectorAll('[data-res]').forEach((b) => {
   b.onclick = () => {
     const [w, h] = b.dataset.res.split('x').map(Number);

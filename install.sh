@@ -15,16 +15,15 @@ have_java() {
 }
 
 if ! have_java; then
-  echo "☕ Java 17+ não encontrado. Tentando instalar openjdk-21-jre..."
-  if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y openjdk-21-jre || {
-      echo "❌ Instale o Java 21 manualmente: https://adoptium.net"; exit 1
-    }
-  else
-    echo "❌ Instale o Java 21 manualmente: https://adoptium.net"; exit 1
+  echo "☕ Java 17+ não encontrado no sistema — sem problema: o app baixa sozinho ao jogar."
+  if command -v apt-get >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    echo "Tentando instalar via apt (sem senha)..."
+    sudo apt-get install -y openjdk-21-jre 2>/dev/null || true
   fi
+  echo "Dica: você também pode instalar depois em https://adoptium.net (Java 21)."
+else
+  echo "☕ $(java -version 2>&1 | head -1)"
 fi
-echo "☕ $(java -version 2>&1 | head -1)"
 
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR"
 

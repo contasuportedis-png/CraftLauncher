@@ -14,8 +14,10 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "adm-zip": "^0.6.1",
     "electron-store": "^10.0.1",
-    "minecraft-launcher-core": "^3.18.1"
+    "minecraft-launcher-core": "^3.18.1",
+    "tar": "^7.5.22"
   },
   "devDependencies": {
     "electron": "^33.0.0",

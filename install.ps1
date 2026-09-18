@@ -6,6 +6,7 @@
 # Se der erro de política de execução, use no CMD:
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex"
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue' # download 10x mais rápido no PS 5.1
 $Repo = 'contasuportedis-png/CraftLauncher'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
@@ -56,7 +57,7 @@ function Install-JavaAuto {
   }
   # 2) zip portable do Temurin — funciona sempre, sem admin
   try {
-    Write-Host 'Baixando Java portable (Temurin 21 JRE)...' -ForegroundColor Yellow
+    Write-Host 'Baixando Java portable (Temurin 21 JRE, ~190 MB, aguarde)...' -ForegroundColor Yellow
     $zip = "$env:TEMP\temurin-21-jre.zip"
     Invoke-WebRequest -UseBasicParsing -Uri 'https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse' -OutFile $zip
     $dest = "$env:LOCALAPPDATA\Programs\Temurin-21-JRE"
@@ -99,7 +100,7 @@ try {
   if (-not $asset) { throw 'Instalador .exe não encontrado na release.' }
 
   $installer = "$env:TEMP\CraftLauncher-Setup.exe"
-  Write-Host ("⬇️  Baixando " + $asset.name + ' ...')
+  Write-Host ("⬇️  Baixando " + $asset.name + ' (~80 MB, aguarde)...')
   Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile $installer
   if ((Get-Item $installer).Length -lt 50MB) { throw 'Download incompleto/corrompido.' }
 

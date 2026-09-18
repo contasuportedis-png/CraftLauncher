@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
   reset: () => ipcRenderer.invoke('store:reset'),
   systemInfo: () => ipcRenderer.invoke('system:info'),
   javaVersion: (p) => ipcRenderer.invoke('system:javaVersion', p),
+  javaRequired: (mc) => ipcRenderer.invoke('java:required', mc),
+  provisionJava: (mc) => ipcRenderer.invoke('java:provision', mc),
   selectJava: () => ipcRenderer.invoke('dialog:selectJava'),
   selectGameDir: () => ipcRenderer.invoke('dialog:selectGameDir'),
   selectSkin: () => ipcRenderer.invoke('dialog:selectSkin'),

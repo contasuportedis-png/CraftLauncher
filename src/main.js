@@ -200,6 +200,134 @@ async function resolveJava(javaPath) {
   return 'java';
 }
 
+// ---------- Java gerenciado (o app baixa sozinho o JRE certo) ----------
+// MC 1.20.5+ (incl. 1.21.x e 26.x) -> Java 21 | MC 1.17-1.20.4 -> Java 17 | resto -> Java 8
+function requiredJavaMajor(mcVersion) {
+  const m = String(mcVersion || '').match(/^(\d+)\.(\d+)/);
+  if (!m) return 21;
+  const maj = parseInt(m[1], 10), min = parseInt(m[2], 10);
+  if (maj > 1 || (maj === 1 && (min > 20 || (min === 20 && String(mcVersion).split('.')[2] >= 5)))) {
+    // 1.20.5+ ou 2.x/26.x
+    const patch = maj === 1 && min === 20 ? parseInt(String(mcVersion).split('.')[2] || '0', 10) : 99;
+    if (maj === 1 && min === 20 && patch < 5) return 17;
+    return 21;
+  }
+  if (maj === 1 && min >= 17) return 17;
+  return 8;
+}
+
+function parseJavaMajor(versionOutput) {
+  // openjdk version "21.0.11" | java version "1.8.0_422"
+  let m = String(versionOutput || '').match(/version "(\d+)\.(\d+)\.(\d+)/);
+  if (m) {
+    if (m[1] === '1') return parseInt(m[2], 10); // 1.8.x -> 8
+    return parseInt(m[1], 10);
+  }
+  m = String(versionOutput || '').match(/(\d+)\.(\d+)/);
+  return m ? parseInt(m[1] === '1' ? m[2] : m[1], 10) : 0;
+}
+
+function javaVersionOf(bin) {
+  return new Promise((resolve) => {
+    const p = spawn(bin, ['-version']);
+    let out = '';
+    p.stderr.on('data', (d) => (out += d.toString()));
+    p.stdout.on('data', (d) => (out += d.toString()));
+    p.on('close', (c) => resolve({ ok: c === 0, major: parseJavaMajor(out), raw: out.trim().split('\n')[0] || '' }));
+    p.on('error', (err) => resolve({ ok: false, major: 0, raw: err.message }));
+  });
+}
+
+function findManagedJavaBin(dir) {
+  // procura bin/java[.exe] recursivamente (zip/tarball tem pasta top-level variável)
+  const exe = process.platform === 'win32' ? 'java.exe' : 'java';
+  try {
+    const walk = (d, depth) => {
+      if (depth > 4) return null;
+      for (const f of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, f.name);
+        if (f.isDirectory()) {
+          if (f.name === 'bin') {
+            const c = path.join(p, exe);
+            if (fs.existsSync(c)) return c;
+          }
+          const r = walk(p, depth + 1);
+          if (r) return r;
+        }
+      }
+      return null;
+    };
+    return fs.existsSync(dir) ? walk(dir, 0) : null;
+  } catch { return null; }
+}
+
+async function downloadManagedJava(major, gameDir) {
+  const plat = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux';
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x64';
+  const url = `https://api.adoptium.net/v3/binary/latest/${major}/ga/${plat}/${arch}/jre/hotspot/normal/eclipse`;
+  const destDir = path.join(gameDir, 'runtime', `java-${major}`);
+  sendLog(`Baixando Java ${major} (Temurin JRE ~190 MB, uma vez só)...`);
+  const tmp = path.join(app.getPath('temp'), `temurin-${major}-${plat}-${arch}.pkg`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Adoptium HTTP ' + res.status);
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(tmp, buf);
+  sendLog(`Extraindo Java ${major}... (pode levar 1-2 min)`);
+  fs.rmSync(destDir, { recursive: true, force: true });
+  fs.mkdirSync(destDir, { recursive: true });
+  const isZip = buf[0] === 0x50 && buf[1] === 0x4b;
+  if (isZip) {
+    const AdmZip = require('adm-zip');
+    new AdmZip(tmp).extractAllTo(destDir, true);
+  } else {
+    const tar = require('tar');
+    await tar.x({ file: tmp, cwd: destDir });
+  }
+  try { fs.rmSync(tmp, { force: true }); } catch {}
+  if (process.platform !== 'win32') {
+    try { fs.chmodSync(findManagedJavaBin(destDir), 0o755); } catch {}
+  }
+  const bin = findManagedJavaBin(destDir);
+  if (!bin) throw new Error('extração ok mas binário java não encontrado');
+  const check = await javaVersionOf(bin);
+  if (!check.ok) throw new Error('java baixado não executa: ' + check.raw);
+  sendLog(`Java ${major} pronto: ${check.raw.slice(0, 60)}`);
+  return bin;
+}
+
+// Resolve o java ideal: 1) escolha do usuário (se atende o MC), 2) gerenciado, 3) baixa sozinho, 4) PATH
+async function ensureJava(mcVersion, userJavaPath, gameDir) {
+  const need = requiredJavaMajor(mcVersion);
+  if (userJavaPath && fs.existsSync(userJavaPath)) {
+    const c = await javaVersionOf(userJavaPath);
+    if (c.ok && c.major >= need) {
+      sendLog(`Java configurado OK: ${c.raw.slice(0, 60)}`);
+      return { bin: userJavaPath, major: c.major, source: 'config' };
+    }
+    if (c.ok) sendLog(`AVISO: seu Java (${c.major}) é velho para MC ${mcVersion} (precisa ${need}+). Usando Java ${need} do launcher.`);
+    else sendLog(`AVISO: Java configurado não executa (${c.raw}). Usando Java ${need} do launcher.`);
+  }
+  const destDir = path.join(gameDir, 'runtime', `java-${need}`);
+  let bin = findManagedJavaBin(destDir);
+  if (bin) {
+    const c = await javaVersionOf(bin);
+    if (c.ok && c.major >= need) {
+      sendLog(`Java do launcher OK: ${c.raw.slice(0, 60)}`);
+      return { bin, major: c.major, source: 'launcher' };
+    }
+  }
+  try {
+    bin = await downloadManagedJava(need, gameDir);
+    return { bin, major: need, source: 'download' };
+  } catch (err) {
+    sendLog(`Falha ao baixar Java ${need}: ${err.message} — tentando Java do sistema...`);
+    const c = await javaVersionOf('java');
+    if (!c.ok) throw new Error('sem Java utilizável. Instale o Java ' + need + ' (https://adoptium.net) ou verifique a internet.');
+    if (c.major < need) sendLog(`AVISO: Java do sistema (${c.major}) é velho para MC ${mcVersion} (precisa ${need}+). O jogo pode não abrir.`);
+    return { bin: 'java', major: c.major, source: 'system' };
+  }
+}
+
 async function fetchJSON(url, opts = {}) {
   const res = await fetch(url, opts);
   if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
@@ -289,6 +417,24 @@ ipcMain.handle('system:javaVersion', async (e, javaPath) => {
     p.on('close', () => resolve(out.trim() || 'não detectado'));
     p.on('error', () => resolve('java não encontrado: ' + bin));
   });
+});
+
+// Qual Java a versão X exige (p/ mostrar na UI)
+ipcMain.handle('java:required', async (e, mcVersion) => {
+  const s = await getStore();
+  return requiredJavaMajor(mcVersion || s.get('version'));
+});
+
+// Baixa o Java certo agora (botão da aba Config) — sem isso o launch baixa sozinho ao jogar
+ipcMain.handle('java:provision', async (e, mcVersion) => {
+  const s = await getStore();
+  try {
+    const info = await ensureJava(mcVersion || s.get('version'), '', s.get('gameDir'));
+    return { ok: true, bin: info.bin, major: info.major, source: info.source };
+  } catch (err) {
+    sendLog('Falha ao provisionar Java: ' + err.message);
+    return { ok: false, error: err.message };
+  }
 });
 
 ipcMain.handle('dialog:selectJava', async () => {
@@ -563,12 +709,20 @@ function readCustomInherits(root, id) {
 
 // roda o installer e retorna { code, createdId }
 function runJavaInstaller(jarPath, gameDir) {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     sendLog('Executando installer: ' + path.basename(jarPath));
     sendLog('Isso pode levar alguns minutos (baixa ~200-400 MB)…');
     const before = new Set(listVersionDirs(gameDir));
     const s = store;
-    const javaBin = (s && s.get('javaPath') && fs.existsSync(s.get('javaPath'))) ? s.get('javaPath') : 'java';
+    // installer moderno exige Java 17+: usa o gerenciado se o sistema não servir
+    let javaBin = 'java';
+    try {
+      const ji = await ensureJava((s && s.get('version')) || '1.21.1', (s && s.get('javaPath')) || '', gameDir);
+      javaBin = ji.bin;
+    } catch (err) {
+      sendLog('AVISO installer: ' + err.message);
+      javaBin = (s && s.get('javaPath') && fs.existsSync(s.get('javaPath'))) ? s.get('javaPath') : 'java';
+    }
     const t0 = Date.now();
     const p = spawn(javaBin, ['-jar', jarPath, '--installClient', gameDir]);
     p.stdout.on('data', (d) => { const t = String(d).trim(); if (t) sendLog(t); });
@@ -726,7 +880,15 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
     fs.mkdirSync(path.join(root, sub), { recursive: true });
   }
 
-  const javaPath = await resolveJava(settings.javaPath);
+  // Java: garante o major certo p/ a versão (baixa sozinho se preciso)
+  let javaInfo;
+  try {
+    javaInfo = await ensureJava(settings.version, settings.javaPath, root);
+  } catch (err) {
+    sendLog('ERRO: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+  const javaPath = javaInfo.bin;
   const client = getMCLC();
   const { Authenticator } = require('minecraft-launcher-core');
   const uuid = offlineUUID(username);
@@ -737,21 +899,7 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
   auth.client_token = uuid.replace(/-/g, '');
   auth.meta = { type: 'mojang', demo: !!settings.demo };
 
-  // valida Java antes de baixar nada
-  const javaCheck = await new Promise((res) => {
-    const p = spawn(javaPath, ['-version']);
-    let out = '';
-    p.stderr.on('data', (d) => (out += d.toString()));
-    p.stdout.on('data', (d) => (out += d.toString()));
-    p.on('close', (c) => res({ ok: c === 0, out: out.trim().split('\n')[0] || '' }));
-    p.on('error', (err) => res({ ok: false, out: err.message }));
-  });
-  if (!javaCheck.ok) {
-    const msg = `Java inválido (${javaPath}): ${javaCheck.out}. Escolha outro na aba Config.`;
-    sendLog('ERRO: ' + msg);
-    return { ok: false, error: msg };
-  }
-  sendLog('Java OK: ' + javaCheck.out.slice(0, 80));
+  // (Java já validado pelo ensureJava acima)
 
   // RAM sanidade: não deixa pedir mais do que o PC tem
   const totalGB = os.totalmem() / 1024 ** 3;
