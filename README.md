@@ -9,13 +9,16 @@ curl -fsSL https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/m
 Isso instala o Java 21 (se faltar), baixa o AppImage da última release e cria o atalho no menu. Depois é só rodar `CraftLauncher`.
 
 ## Windows 🪟
-**Instalação em 1 comando** (abra o PowerShell e cole):
+**Instalação em 1 comando.**
+
+No **PowerShell**, cole:
 ```powershell
-irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $f="$env:TEMP\cl-install.ps1"; (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1',$f); if ((Get-Item $f).Length -lt 1KB) { Write-Host 'Falha no download. Abra o link no navegador e salve o arquivo.' } else { powershell -NoProfile -ExecutionPolicy Bypass -File $f }
 ```
-Se o PowerShell reclamar de política de execução, use no CMD:
+
+No **CMD**, cole:
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $f=$env:TEMP+'\cl-install.ps1'; (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1',$f); if ((Get-Item $f).Length -lt 1KB) { Write-Host 'Falha no download. Abra o link no navegador e salve o arquivo.' } else { Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$f -Wait }"
 ```
 Isso instala o Java 21 (se faltar), baixa o instalador da última release e instala silenciosamente. Depois abra `CraftLauncher` no Menu Iniciar.
 - Alternativa manual: baixe `CraftLauncher.Setup.2.0.0.exe` na [release](https://github.com/contasuportedis-png/CraftLauncher/releases) (+ Java 21 em https://adoptium.net).
