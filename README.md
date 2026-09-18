@@ -13,6 +13,10 @@ Isso instala o Java 21 (se faltar), baixa o AppImage da última release e cria o
 ```powershell
 irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex
 ```
+Se o PowerShell reclamar de política de execução, use no CMD:
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex"
+```
 Isso instala o Java 21 (se faltar), baixa o instalador da última release e instala silenciosamente. Depois abra `CraftLauncher` no Menu Iniciar.
 - Alternativa manual: baixe `CraftLauncher.Setup.2.0.0.exe` na [release](https://github.com/contasuportedis-png/CraftLauncher/releases) (+ Java 21 em https://adoptium.net).
 - Ou rode do código: instale [Node LTS](https://nodejs.org), depois `npm install` + `npm start` na pasta.
