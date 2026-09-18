@@ -1,10 +1,12 @@
-# CraftLauncher — instalador Windows em um comando.
+# CraftLauncher — instalador Windows.
 #
-# No PowerShell, cole:
-#   irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex
+# No PowerShell, cole (baixa o Java sozinho se faltar):
+#   [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $f="$env:TEMP\cl-install.ps1"; (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1',$f); powershell -NoProfile -ExecutionPolicy Bypass -File $f
 #
-# Se der erro de política de execução, use no CMD:
-#   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1 | iex"
+# Para instalar SÓ o app e pular o Java (o app baixa sozinho ao jogar),
+# adicione -SkipJava no final:
+#   ... -File $f -SkipJava
+param([switch]$SkipJava)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue' # download 10x mais rápido no PS 5.1
 $Repo = 'contasuportedis-png/CraftLauncher'
@@ -48,6 +50,7 @@ function Install-JavaAuto {
       $wp = Start-Process winget -ArgumentList 'install','-e','--id','EclipseAdoptium.Temurin.21.JRE','--silent','--accept-package-agreements','--accept-source-agreements','--disable-interactivity' `
         -NoNewWindow -Wait -PassThru -RedirectStandardOutput $wlog -RedirectStandardError $wlog -ErrorAction Stop
       Remove-Item $wlog -Force -ErrorAction SilentlyContinue
+      Write-Host ("winget saiu com código " + $wp.ExitCode)
       $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
       if ((Get-JavaMajor) -ge 17) { return $true }
       Write-Host 'winget não resolveu, tentando modo portable...' -ForegroundColor Yellow
@@ -100,12 +103,15 @@ function Install-JavaAuto {
   return $false
 }
 
-if ((Get-JavaMajor) -lt 17) {
+if ($SkipJava) {
+  Write-Host '⏭️  Pulando etapa do Java (-SkipJava). O app baixa sozinho ao jogar.' -ForegroundColor Yellow
+} elseif ((Get-JavaMajor) -lt 17) {
   Write-Host '☕ Java 17+ não encontrado. Instalando automaticamente...' -ForegroundColor Yellow
   if (-not (Install-JavaAuto)) {
     Write-Host '❌ Não consegui instalar o Java sozinho.' -ForegroundColor Red
-    Write-Host '   Instale manualmente em https://adoptium.net (versão 21, JRE Windows x64)'
-    Write-Host '   e rode este comando de novo.'
+    Write-Host '   SEM PROBLEMA: pule o Java — o app baixa sozinho ao jogar. Rode:'
+    Write-Host '   powershell -NoProfile -ExecutionPolicy Bypass -Command "$g=''https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1''; $t=$env:TEMP+''\cl-install.ps1''; Invoke-WebRequest -UseBasicParsing $g -OutFile $t; Start-Process powershell -ArgumentList ''-NoProfile'',''-ExecutionPolicy'',''Bypass'',''-File'',$t,''-SkipJava'' -Wait"'
+    Write-Host '   Ou instale o Java manualmente em https://adoptium.net (versão 21) e rode de novo.'
     exit 1
   }
 }

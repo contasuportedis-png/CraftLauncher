@@ -20,6 +20,11 @@ No **CMD**, cole:
 ```bat
 powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $f=$env:TEMP+'\cl-install.ps1'; (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1',$f); if ((Get-Item $f).Length -lt 1KB) { Write-Host 'Falha no download. Abra o link no navegador e salve o arquivo.' } else { Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',$f -Wait }"
 ```
+
+Se o Java travar, instale **só o app** (o Java vem sozinho ao jogar) adicionando `-SkipJava` no final, ex. no PowerShell:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File $f -SkipJava
+```
 Isso instala o Java 21 (se faltar), baixa o instalador da última release e instala silenciosamente. Depois abra `CraftLauncher` no Menu Iniciar.
 - Alternativa manual: baixe `CraftLauncher.Setup.2.0.0.exe` na [release](https://github.com/contasuportedis-png/CraftLauncher/releases) (+ Java 21 em https://adoptium.net).
 - Ou rode do código: instale [Node LTS](https://nodejs.org), depois `npm install` + `npm start` na pasta.
