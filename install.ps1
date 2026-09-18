@@ -55,31 +55,49 @@ function Install-JavaAuto {
   } catch {
     Write-Host 'winget indisponível, tentando modo portable...' -ForegroundColor Yellow
   }
-  # 2) zip portable do Temurin — funciona sempre, sem admin
-  try {
-    Write-Host 'Baixando Java portable (Temurin 21 JRE, ~190 MB, aguarde)...' -ForegroundColor Yellow
-    $zip = "$env:TEMP\temurin-21-jre.zip"
-    Invoke-WebRequest -UseBasicParsing -Uri 'https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse' -OutFile $zip
-    $dest = "$env:LOCALAPPDATA\Programs\Temurin-21-JRE"
-    if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-    Expand-Archive -Path $zip -DestinationPath $dest -Force
-    Remove-Item $zip -Force -ErrorAction SilentlyContinue
-    $javaExe = Get-ChildItem -Path $dest -Recurse -Filter 'java.exe' |
-      Where-Object { $_.FullName -like '*\bin\java.exe' } | Select-Object -First 1
-    if (-not $javaExe) { return $false }
-    $binDir = $javaExe.DirectoryName
-    $userPath = [Environment]::GetEnvironmentVariable('Path','User')
-    if ($userPath -notlike "*$binDir*") {
-      [Environment]::SetEnvironmentVariable('Path', "$userPath;$binDir", 'User')
+  # 2) zip portable — funciona sempre, sem admin (Temurin, reserva Microsoft)
+  $sources = @(
+    @{ name = 'Temurin 21 JRE'; url = 'https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse' },
+    @{ name = 'Microsoft JDK 21'; url = 'https://aka.ms/download-jdk/microsoft-jdk-21-windows-x64.zip' }
+  )
+  foreach ($src in $sources) {
+    try {
+      Write-Host ("Baixando Java portable (" + $src.name + ", ~190 MB, aguarde)...") -ForegroundColor Yellow
+      $zip = "$env:TEMP\cl-java21.zip"
+      Remove-Item $zip -Force -ErrorAction SilentlyContinue
+      Invoke-WebRequest -UseBasicParsing -Uri $src.url -OutFile $zip
+      $sizeMB = ((Get-Item $zip).Length / 1MB)
+      Write-Host ("Baixado: {0:N1} MB" -f $sizeMB)
+      if ($sizeMB -lt 50) { throw ("zip incompleto ({0:N1} MB)" -f $sizeMB) }
+      $dest = "$env:LOCALAPPDATA\Programs\CL-Java21"
+      if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction Stop }
+      Write-Host 'Extraindo (pode levar 1-2 min)...' -ForegroundColor Yellow
+      Expand-Archive -Path $zip -DestinationPath $dest -Force -ErrorAction Stop
+      Remove-Item $zip -Force -ErrorAction SilentlyContinue
+      $javaExe = Get-ChildItem -Path $dest -Recurse -Filter 'java.exe' -ErrorAction Stop |
+        Where-Object { $_.FullName -like '*\bin\java.exe' } | Select-Object -First 1
+      if (-not $javaExe) {
+        $top = (Get-ChildItem -Path $dest -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ', '
+        Write-Host ("Extraiu mas sem java.exe. Conteúdo: " + ($top | Out-String)) -ForegroundColor Yellow
+        Write-Host 'Se a pasta está vazia, o antivírus pode ter removido os arquivos — pausse-o e tente de novo.' -ForegroundColor Yellow
+        continue
+      }
+      $binDir = $javaExe.DirectoryName
+      Write-Host ("Java encontrado: " + $javaExe.FullName)
+      $userPath = [Environment]::GetEnvironmentVariable('Path','User')
+      if ($userPath -notlike "*$binDir*") {
+        [Environment]::SetEnvironmentVariable('Path', "$userPath;$binDir", 'User')
+      }
+      [Environment]::SetEnvironmentVariable('JAVA_HOME', (Split-Path $binDir), 'User')
+      $env:Path = "$env:Path;$binDir"
+      $env:JAVA_HOME = (Split-Path $binDir)
+      if ((Get-JavaMajor) -ge 17) { return $true }
+      Write-Host 'java.exe não respondeu à verificação, tentando próxima fonte...' -ForegroundColor Yellow
+    } catch {
+      Write-Host ("Fonte " + $src.name + " falhou: " + $_.Exception.Message) -ForegroundColor Yellow
     }
-    [Environment]::SetEnvironmentVariable('JAVA_HOME', (Split-Path $binDir), 'User')
-    $env:Path = "$env:Path;$binDir"
-    $env:JAVA_HOME = (Split-Path $binDir)
-    return ((Get-JavaMajor) -ge 17)
-  } catch {
-    Write-Host ("Portable falhou: " + $_.Exception.Message) -ForegroundColor Yellow
-    return $false
   }
+  return $false
 }
 
 if ((Get-JavaMajor) -lt 17) {
