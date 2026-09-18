@@ -2,6 +2,12 @@
 
 Launcher premium em Electron: visual Minecraft, **Vanilla + Fabric + Forge + NeoForge + Quilt**, skins offline, mods em 1 clique e opções avançadas. **Funciona em Linux e Windows.**
 
+## Instalação em 1 comando (Linux) ⚡
+```bash
+curl -fsSL https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.sh | bash
+```
+Isso instala o Java 21 (se faltar), baixa o AppImage da última release e cria o atalho no menu. Depois é só rodar `CraftLauncher`.
+
 ## Windows 🪟
 - **Instalador pronto**: `dist/CraftLauncher Setup 2.0.0.exe` (rode e use — sem Node necessário)
 - Ou rode do código: instale [Node LTS](https://nodejs.org) + [Java 21 (Adoptium)](https://adoptium.net), depois:
