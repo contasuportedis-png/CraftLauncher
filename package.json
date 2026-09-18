@@ -1,0 +1,43 @@
+{
+  "name": "craftlauncher",
+  "version": "2.0.0",
+  "description": "CraftLauncher 2 — Launcher premium de Minecraft Java Edition (offline) com NeoForge",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.1",
+    "minecraft-launcher-core": "^3.18.1"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.craftlauncher.app",
+    "productName": "CraftLauncher",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Game"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}

@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CraftLauncher 2 — Minecraft Java (offline)</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body data-theme="creeper">
+<div class="bg"><div class="bg-grid"></div><div class="bg-glow g1"></div><div class="bg-glow g2"></div>
+  <div class="float-cube f1"></div><div class="float-cube f2"></div><div class="float-cube f3"></div><div class="float-cube f4"></div>
+</div>
+
+<header class="topbar">
+  <div class="brand-block">
+    <div class="cube-logo" title="CraftLauncher"><span class="cube-grass"></span><span class="cube-dirt"></span></div>
+    <div>
+      <h1>CraftLauncher <span class="ver-badge">2.0</span></h1>
+      <p>Java Edition • offline • <span class="hl">NeoForge</span> ready</p>
+    </div>
+  </div>
+  <div class="topbar-center">
+    <div class="pill" id="mojangPill"><span class="dot" id="mojangDot"></span><span id="mojangText">checando Mojang…</span></div>
+    <div class="pill">💾 <span id="ramPill">—</span></div>
+    <div class="pill">☕ <span id="javaPill">Java…</span></div>
+  </div>
+  <div class="topbar-right">
+    <div class="theme-row" title="Tema de destaque">
+      <button class="sw active" data-theme-btn="creeper" style="--sw:#3ddc84" title="Creeper"></button>
+      <button class="sw" data-theme-btn="diamond" style="--sw:#4dd8ff" title="Diamante"></button>
+      <button class="sw" data-theme-btn="gold" style="--sw:#ffc93d" title="Ouro"></button>
+      <button class="sw" data-theme-btn="redstone" style="--sw:#ff5d5d" title="Redstone"></button>
+      <button class="sw" data-theme-btn="amethyst" style="--sw:#b98cff" title="Ametista"></button>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="card player-card">
+      <div class="player-head">
+        <div class="skin-frame"><canvas id="skinPreview" width="64" height="64"></canvas></div>
+        <div class="player-fields">
+          <label class="lbl">NICKNAME
+            <div class="row"><input id="username" maxlength="16" placeholder="Steve" class="grow" /><button id="btnDice" class="btn icon" title="Nickname aleatório">🎲</button></div>
+          </label>
+          <div class="uuid-line"><code id="uuidText">uuid…</code><button id="btnCopyUUID" class="link" title="Copiar UUID offline">copiar</button></div>
+          <div class="row">
+            <button id="btnSkin" class="btn small grow">🎨 Trocar skin</button>
+            <button id="btnSkinMod" class="btn small ghost" title="Instala OfflineSkins">✨ Ativar no jogo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card play-card">
+      <div class="version-hero">
+        <div><div class="micro">VERSÃO SELECIONADA</div><h2 id="heroVersion">1.20.1</h2></div>
+        <span id="heroLoader" class="badge">VANILLA</span>
+      </div>
+      <button id="btnPlay" class="play"><span class="play-title">▶ JOGAR</span><span class="play-sub" id="playSub">pronto</span></button>
+      <div class="progress-wrap"><div class="progress"><div id="progressBar"></div></div></div>
+      <div id="status" class="status">Pronto para jogar.</div>
+      <div class="play-meta">
+        <div>🖥️ <span id="metaRes">854×480</span></div>
+        <div>🧠 <span id="metaRam">2–4G</span></div>
+        <div>📁 <span id="metaSize">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label class="lbl">VERSÃO DO MINECRAFT
+        <div class="row"><select id="version" class="grow"></select><button id="btnReloadVersions" class="btn icon" title="Recarregar">↻</button></div>
+      </label>
+      <label class="lbl">MODLOADER
+        <div class="ml-pills">
+          <button data-ml="vanilla" class="active" title="Sem mods">⬛ Vanilla</button>
+          <button data-ml="fabric" title="Leve e moderno">🧵 Fabric</button>
+          <button data-ml="forge" title="Clássico, muitos mods">🔨 Forge</button>
+          <button data-ml="neoforge" title="Sucessor do Forge (1.20.5+)">⚡ NeoForge</button>
+          <button data-ml="quilt" title="Fork do Fabric">🪡 Quilt</button>
+        </div>
+      </label>
+      <select id="modloader" style="display:none"><option value="vanilla">vanilla</option><option value="fabric">fabric</option><option value="forge">forge</option><option value="neoforge">neoforge</option><option value="quilt">quilt</option></select>
+      <label class="lbl">VERSÃO DO LOADER <span class="micro-inline" id="loaderHint">auto = mais recente</span>
+        <select id="modloaderVersion"><option value="">auto (recomendado)</option></select>
+      </label>
+      <div class="ram-block">
+        <label class="lbl">RAM MÍNIMA — <span id="ramMinVal">2G</span><input id="ramMin" type="range" min="1" max="16" step="1" value="2" /></label>
+        <label class="lbl">RAM MÁXIMA — <span id="ramMaxVal">4G</span><input id="ramMax" type="range" min="1" max="16" step="1" value="4" /></label>
+      </div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <nav class="tabs">
+      <button data-tab="inicio" class="active">🏠 Início</button>
+      <button data-tab="versoes">📦 Versões</button>
+      <button data-tab="modloaders">🧩 Modloaders</button>
+      <button data-tab="skins">🎨 Skins</button>
+      <button data-tab="mods">🗂️ Mods</button>
+      <button data-tab="config">⚙️ Config</button>
+      <button data-tab="ajuda">❓ Ajuda</button>
+    </nav>
+
+    <section id="tab-inicio" class="tab active">
+      <div class="hero">
+        <div class="hero-text">
+          <div class="micro">CRAFTLAUNCHER 2 • OFFLINE</div>
+          <h2>Pronto para minerar, <span id="heroName">Steve</span>? ⛏️</h2>
+          <p id="heroDesc">Vanilla 1.20.1 • 2–4 GB • singleplayer + servidores offline.</p>
+          <div class="row wrap">
+            <button id="btnPlayHero" class="btn primary">▶ Jogar agora</button>
+            <button id="btnOpenGame" class="btn">📁 Pasta do jogo</button>
+            <button id="btnGoVersions" class="btn ghost">📦 Trocar versão</button>
+          </div>
+        </div>
+        <div class="hero-art" aria-hidden="true"><div class="big-cube"><span></span></div></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="micro">JAVA</div><div class="stat-v" id="statJava">detectando…</div><div class="stat-s" id="statJavaSub">—</div></div>
+        <div class="stat"><div class="micro">MODS INSTALADOS</div><div class="stat-v" id="statMods">0</div><div class="stat-s">pasta mods/</div></div>
+        <div class="stat"><div class="micro">TAMANHO DO JOGO</div><div class="stat-v" id="statSize">—</div><div class="stat-s" id="statVer">—</div></div>
+      </div>
+      <h3>Novidades <button id="btnNews" class="link">atualizar</button></h3>
+      <div id="newsGrid" class="news-grid"></div>
+      <div class="card tips"><b>💡 Dicas rápidas</b>
+        <ul>
+          <li>Primeiro launch de cada versão baixa ~200–500 MB — aguarde a barra.</li>
+          <li>MC 1.17+ precisa de <b>Java 17+</b>. Você já tem o 21 — perfeito até a 1.21.</li>
+          <li>Skin offline só aparece com o mod <b>OfflineSkins</b> (aba Skins).</li>
+          <li>NeoForge é o caminho novo para MC 1.20.5+; Forge clássico para 1.20.1 e abaixo.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="tab-versoes" class="tab">
+      <div class="toolbar">
+        <input id="verSearch" placeholder="🔎 Buscar versão… (ex: 1.20, 1.8.9)" class="grow" />
+        <label class="check"><input type="checkbox" id="fRelease" checked /> releases</label>
+        <label class="check"><input type="checkbox" id="fSnapshot" /> snapshots</label>
+        <label class="check"><input type="checkbox" id="fOld" /> betas/alphas</label>
+        <button id="btnRefreshVersions" class="btn small">↻ Atualizar</button>
+      </div>
+      <div class="micro" id="verCount">—</div>
+      <div id="versionGrid" class="ver-grid"></div>
+      <button id="btnMoreVersions" class="btn ghost wide">Mostrar mais</button>
+    </section>
+
+    <section id="tab-modloaders" class="tab">
+      <div class="ml-grid">
+        <div class="card ml-card" data-card="vanilla">
+          <div class="ml-icon">⬛</div><h3>Vanilla</h3>
+          <p>Puro, sem mods. O mais estável e rápido.</p>
+          <button class="btn small use-ml" data-use="vanilla">Usar Vanilla</button>
+        </div>
+        <div class="card ml-card" data-card="fabric">
+          <div class="ml-icon">🧵</div><h3>Fabric</h3>
+          <p>Leve e moderno. Ideal para Sodium, Iris e performance.</p>
+          <select id="fabVer"><option value="">auto</option></select>
+          <div class="row"><button class="btn small primary use-ml" data-use="fabric">Usar Fabric</button></div>
+          <div class="mono small" id="fabList">—</div>
+        </div>
+        <div class="card ml-card" data-card="quilt">
+          <div class="ml-icon">🪡</div><h3>Quilt</h3>
+          <p>Fork do Fabric, comunidade aberta.</p>
+          <select id="quiltVer"><option value="">auto</option></select>
+          <div class="row"><button class="btn small primary use-ml" data-use="quilt">Usar Quilt</button></div>
+          <div class="mono small" id="quiltList">—</div>
+        </div>
+        <div class="card ml-card" data-card="forge">
+          <div class="ml-icon">🔨</div><h3>Forge</h3>
+          <p>Clássico, milhares de mods até a 1.20.1. Exige installer.</p>
+          <select id="forgeVer"><option value="">recommended/latest</option></select>
+          <div class="row wrap"><button class="btn small primary use-ml" data-use="forge">Usar Forge</button><button id="btnInstallForge" class="btn small">⬇ Instalar</button></div>
+          <div class="mono small" id="forgeList">—</div>
+        </div>
+        <div class="card ml-card featured" data-card="neoforge">
+          <div class="ml-icon">⚡</div><h3>NeoForge <span class="badge">NOVO</span></h3>
+          <p>Sucessor do Forge para MC 1.20.5+. Ativo e moderno.</p>
+          <select id="neoVer"><option value="">mais recente</option></select>
+          <div class="row wrap"><button class="btn small primary use-ml" data-use="neoforge">Usar NeoForge</button><button id="btnInstallNeo" class="btn small">⬇ Instalar</button></div>
+          <div class="mono small" id="neoList">—</div>
+        </div>
+      </div>
+      <div class="card"><b>Como instalar Forge/NeoForge:</b> escolha a versão do jogo na barra lateral → clique <b>⬇ Instalar</b> → aguarde 3–10 min olhando os logs (baixa ~300 MB) → clique <b>JOGAR</b>. O launcher ajusta a versão do jogo sozinho se o loader exigir outra (ex: NeoForge 21.11.x → MC 1.21.11). Fabric/Quilt não precisam de installer: é só <b>Usar</b> e <b>JOGAR</b>.</div>
+      <h3>Console</h3><pre id="logs">Bem-vindo ao CraftLauncher 2!\nEscolha nickname + versão e clique em JOGAR.\n</pre>
+    </section>
+
+    <section id="tab-skins" class="tab">
+      <div class="skins-layout">
+        <div class="card skin-left">
+          <canvas id="skinBig" width="128" height="128"></canvas>
+          <div class="row">
+            <button id="btnSkin2" class="btn small grow">📤 Enviar PNG</button>
+            <select id="skinModel" title="Modelo do braço"><option value="classic">Classic (4px)</option><option value="slim">Slim (3px)</option></select>
+          </div>
+          <button id="btnSkinMod2" class="btn primary">✨ Ativar skin no jogo (OfflineSkins)</button>
+          <p class="muted">Sem o mod, o jogo mostra Steve/Alex — limitação do modo offline.</p>
+        </div>
+        <div class="card skin-right">
+          <h3>Minha galeria</h3>
+          <div id="skinGallery" class="skin-gallery"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-mods" class="tab">
+      <div class="toolbar">
+        <button id="btnRefreshMods" class="btn small">↻ Atualizar</button>
+        <button id="btnMods" class="btn small">📁 mods</button>
+        <button id="btnResourcepacks" class="btn small">🎨 resourcepacks</button>
+        <button id="btnShaders" class="btn small">🌅 shaderpacks</button>
+        <button id="btnScreenshots" class="btn small">📸 screenshots</button>
+      </div>
+      <div id="vanillaWarn" class="warn" style="display:none">⚠️ Você está no <b>Vanilla</b> — arquivos na pasta mods <b>não carregam</b> sem modloader. Troque para <b>Fabric</b> na barra lateral (ou instale abaixo e eu troco sozinho).</div>
+      <h3>Catálogo 1-clique <span class="micro-inline">(sempre da versão + loader selecionados)</span></h3>
+      <div id="modCatalog"></div>
+      <h3>Mods instalados (<span id="modsCount">0</span>)</h3>
+      <div id="modsList" class="mods-list"></div>
+      <div id="modsEmpty" class="muted">Nenhum mod. Arraste arquivos .jar para a pasta mods/ ou use os botões acima.</div>
+    </section>
+
+    <section id="tab-config" class="tab">
+      <div class="cfg-grid">
+        <div class="card"><h3>☕ Java</h3>
+          <label class="lbl">EXECUTÁVEL<select id="javaPreset"></select></label>
+          <div class="row"><input id="javaPath" placeholder="java (PATH)" class="grow" /><button id="btnJava" class="btn small">Procurar…</button><button id="btnJavaTest" class="btn small ghost">Testar</button></div>
+          <div id="javaOut" class="mono small"></div>
+        </div>
+        <div class="card"><h3>🖥️ Vídeo & janela</h3>
+          <div class="grid2"><label class="lbl">LARGURA<input id="width" type="number" min="640" max="7680" /></label><label class="lbl">ALTURA<input id="height" type="number" min="480" max="4320" /></label></div>
+          <label class="check"><input type="checkbox" id="fullscreen" /> Tela cheia</label>
+          <div class="row wrap"><button class="btn small" data-res="854x480">854×480</button><button class="btn small" data-res="1280x720">1280×720</button><button class="btn small" data-res="1920x1080">1920×1080</button></div>
+        </div>
+        <div class="card"><h3>🧪 Avançado</h3>
+          <label class="lbl">ARGUMENTOS JVM (separados por espaço)<input id="jvmArgs" placeholder='ex: -XX:+UseG1GC -Dfile.encoding=UTF-8' /></label>
+          <label class="lbl">ARGUMENTOS DO JOGO<input id="gameArgs" placeholder="ex: --demo" /></label>
+          <label class="check"><input type="checkbox" id="demo" /> Modo demonstração</label>
+        </div>
+        <div class="card"><h3>🌐 Entrar direto no servidor</h3>
+          <div class="grid2"><label class="lbl">HOST/IP<input id="serverHost" placeholder="ex: hypixel.net (vazio = menu)" /></label><label class="lbl">PORTA<input id="serverPort" placeholder="25565" /></label></div>
+        </div>
+        <div class="card"><h3>🚀 Launcher</h3>
+          <label class="lbl">AO INICIAR O JOGO<select id="closeAction"><option value="keep">Manter aberto</option><option value="minimize">Minimizar</option><option value="close">Ocultar</option></select></label>
+          <label class="lbl">PASTA DO JOGO<div class="row"><input id="gameDir" class="grow" /><button id="btnGameDirPick" class="btn small">Escolher…</button></div></label>
+          <div class="row wrap"><button id="btnSave" class="btn primary">💾 Salvar tudo</button><button id="btnReset" class="btn ghost">Restaurar padrão</button></div>
+          <p id="sysInfo" class="mono small"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-ajuda" class="tab">
+      <div class="card"><h3>❓ Perguntas frequentes</h3>
+        <details open><summary>O jogo não abre / fecha sozinho</summary><p>Confira os logs na aba Modloaders. 90% das vezes é: Java errado (1.17+ exige Java 17+), RAM acima do disponível, ou loader incompatível com a versão. Teste primeiro em <b>Vanilla</b>.</p></details>
+        <details><summary>Offline entra em quais servidores?</summary><p>Apenas servidores com <code>online-mode=false</code> (cracked/offline) e singleplayer. Servidores originais (Hypixel etc.) exigem conta Microsoft.</p></details>
+        <details><summary>Minha skin não aparece</summary><p>Instale o mod <b>OfflineSkins</b> pela aba Skins e jogue com Fabric/Forge/NeoForge/Quilt. Coloque seu PNG 64×64 — ele vira <code>skins/skin.png</code>.</p></details>
+        <details><summary>Forge x NeoForge?</summary><p>Forge: até 1.20.1, ecossistema gigante. NeoForge: 1.20.5+ (inclui 1.21), é o futuro. Fabric/Quilt: leves, melhor performance (Sodium+Iris).</p></details>
+        <details><summary>Quanto de RAM?</summary><p>Vanilla: 2–4 GB. Com mods/shaders: 4–8 GB. Nunca passe de 50–60% da RAM total.</p></details>
+      </div>
+      <div class="row wrap"><button id="btnCopyDiag" class="btn">📋 Copiar diagnóstico</button><button id="btnOpenLogs" class="btn">📁 Abrir pasta do jogo</button></div>
+    </section>
+  </main>
+</div>
+
+<div id="toasts"></div>
+<script src="renderer.js"></script>
+</body>
+</html>
