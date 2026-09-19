@@ -35,6 +35,8 @@ echo "⬇️  Baixando CraftLauncher..."
 curl -fSL --progress-bar -o "$APP" "$URL"
 [ "$(stat -c%s "$APP")" -gt 50000000 ] || { echo "❌ Download incompleto/corrompido."; exit 1; }
 chmod +x "$APP"
+# atalho `CraftLauncher` no PATH
+ln -sf "$APP" "$BIN_DIR/CraftLauncher"
 
 cat > "$DESKTOP_DIR/craftlauncher.desktop" <<EOF
 [Desktop Entry]
