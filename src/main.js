@@ -61,7 +61,7 @@ function getMCLC() {
       if (recentGameLines.length > 25) recentGameLines.shift();
       const tl = t.toLowerCase();
       if (tl.includes('unsupportedclassversionerror') || tl.includes('class file version')) {
-        sendLog('DIAGNÓSTICO: seu Java é velho para essa versão do MC. Troque o Java na aba Config (MC 1.20.5+ precisa de Java 21).');
+        sendLog('DIAGNÓSTICO: seu Java é velho para essa versão do MC. O launcher baixa o certo sozinho — veja "Java" nos logs acima.');
       } else if (tl.includes('could not reserve enough space') || tl.includes('not enough space')) {
         sendLog('DIAGNÓSTICO: RAM acima do disponível. Baixe a RAM máxima na barra lateral.');
       }
@@ -240,18 +240,32 @@ async function resolveJava(javaPath) {
 }
 
 // ---------- Java gerenciado (o app baixa sozinho o JRE certo) ----------
-// MC 1.20.5+ (incl. 1.21.x e 26.x) -> Java 21 | MC 1.17-1.20.4 -> Java 17 | resto -> Java 8
-function requiredJavaMajor(mcVersion) {
-  const m = String(mcVersion || '').match(/^(\d+)\.(\d+)/);
+// Fonte autoritativa: javaVersion.majorVersion do JSON oficial da versão.
+// Fallback: 26.x+ -> 25 | 1.21.x -> 21 | 1.17-1.20.4 -> 17 | resto -> 8
+async function requiredJavaMajor(mcVersion) {
+  const mc = String(mcVersion || '');
+  try {
+    const s = await getStore();
+    const cache = s.get('javaReqCache') || {};
+    if (cache[mc]) return cache[mc];
+    const manifest = await getManifest(false);
+    const entry = (manifest.versions || []).find((v) => v.id === mc);
+    if (entry && entry.url) {
+      const j = await fetchJSON(entry.url);
+      if (j && j.javaVersion && j.javaVersion.majorVersion) {
+        const major = parseInt(j.javaVersion.majorVersion, 10);
+        cache[mc] = major;
+        s.set('javaReqCache', cache);
+        return major;
+      }
+    }
+  } catch {}
+  const m = mc.match(/^(\d+)\.(\d+)/);
   if (!m) return 21;
   const maj = parseInt(m[1], 10), min = parseInt(m[2], 10);
-  if (maj > 1 || (maj === 1 && (min > 20 || (min === 20 && String(mcVersion).split('.')[2] >= 5)))) {
-    // 1.20.5+ ou 2.x/26.x
-    const patch = maj === 1 && min === 20 ? parseInt(String(mcVersion).split('.')[2] || '0', 10) : 99;
-    if (maj === 1 && min === 20 && patch < 5) return 17;
-    return 21;
-  }
-  if (maj === 1 && min >= 17) return 17;
+  if (maj > 1) return 25; // 26.x e futuras: acompanha o major do MC
+  if (min > 20 || (min === 20 && parseInt((mc.split('.')[2] || '0'), 10) >= 5)) return 21;
+  if (min >= 17) return 17;
   return 8;
 }
 
@@ -366,7 +380,7 @@ async function downloadManagedJava(major, gameDir) {
 
 // Resolve o java ideal: 1) escolha do usuário (se atende o MC), 2) gerenciado, 3) baixa sozinho, 4) PATH
 async function ensureJava(mcVersion, userJavaPath, gameDir) {
-  const need = requiredJavaMajor(mcVersion);
+  const need = await requiredJavaMajor(mcVersion);
   if (userJavaPath && fs.existsSync(userJavaPath)) {
     const c = await javaVersionOf(userJavaPath);
     if (c.ok && c.major >= need) {
@@ -514,7 +528,7 @@ ipcMain.handle('system:javaVersion', async (e, javaPath) => {
 // Qual Java a versão X exige (p/ mostrar na UI)
 ipcMain.handle('java:required', async (e, mcVersion) => {
   const s = await getStore();
-  return requiredJavaMajor(mcVersion || s.get('version'));
+  return await requiredJavaMajor(mcVersion || s.get('version'));
 });
 
 // Baixa o Java certo agora (botão da aba Config) — sem isso o launch baixa sozinho ao jogar
@@ -1082,15 +1096,26 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
 
   // (Java já validado pelo ensureJava acima)
 
-  // RAM sanidade: não deixa pedir mais do que o PC tem
+  // RAM sanidade: limita pelo TOTAL e pela LIVRE (máquina lotada mata o Java na hora)
   const totalGB = os.totalmem() / 1024 ** 3;
-  if (settings.ramMax > totalGB) {
-    const clamped = Math.max(1, Math.floor(totalGB * 0.6));
-    sendLog(`AVISO: RAM máxima (${settings.ramMax}G) maior que a do PC (${totalGB.toFixed(1)}G). Ajustando para ${clamped}G.`);
-    settings.ramMax = clamped;
-    if (settings.ramMin > clamped) settings.ramMin = clamped;
-    s.set({ ramMax: settings.ramMax, ramMin: settings.ramMin });
+  const freeGB = os.freemem() / 1024 ** 3;
+  const capTotal = Math.floor(totalGB * 0.6);
+  const capFree = Math.floor(freeGB * 0.8);
+  let cap = Math.min(capTotal, capFree);
+  if (cap < 2) {
+    sendLog(`⚠️ ATENÇÃO: só há ${freeGB.toFixed(1)}G livres de ${totalGB.toFixed(1)}G — feche programas antes de jogar!`);
+    cap = Math.max(1, Math.min(2, Math.floor(totalGB * 0.25)));
   }
+  if (settings.ramMax > cap) {
+    sendLog(`AVISO: RAM máxima ajustada ${settings.ramMax}G → ${cap}G (livre: ${freeGB.toFixed(1)}G).`);
+    settings.ramMax = cap;
+    s.set({ ramMax: settings.ramMax });
+  }
+  if (settings.ramMin > settings.ramMax) {
+    settings.ramMin = Math.max(1, settings.ramMax - 1);
+    s.set({ ramMin: settings.ramMin });
+  }
+  sendLog(`RAM: livre ${freeGB.toFixed(1)}G/total ${totalGB.toFixed(1)}G → jogo com ${settings.ramMin}–${settings.ramMax}G.`);
 
   const splitArgs = (str) => String(str || '').match(/(?:[^\s"]+|"[^"]*")+/g)?.map((a) => a.replace(/^"|"$/g, '')) || [];
 
@@ -1194,11 +1219,28 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
   sendLog(`Iniciando Minecraft ${settings.version} (${settings.modloader}) como ${username} [${uuid.slice(0, 8)}...]`);
   sendLog(`RAM ${settings.ramMin}G–${settings.ramMax}G | ${w}x${h}${settings.fullscreen ? ' fullscreen' : ''} | Java: ${javaPath}`);
   try {
+    const ml = (settings.modloader || 'vanilla').toLowerCase();
+    const mc = settings.version;
     const modFiles = fs.readdirSync(path.join(root, 'mods')).filter((f) => f.endsWith('.jar'));
-    if ((settings.modloader || 'vanilla') === 'vanilla' && modFiles.length) {
+    if (ml === 'vanilla' && modFiles.length) {
       sendLog(`AVISO: ${modFiles.length} mod(s) na pasta mas loader é Vanilla — não vão carregar. Troque para Fabric.`);
     } else if (modFiles.length) {
       sendLog(`Mods ativos (${modFiles.length}): ` + modFiles.slice(0, 8).join(', ') + (modFiles.length > 8 ? '…' : ''));
+      // heurística: jar marcado p/ outro loader ou outra versão do MC
+      const loaders = ['fabric', 'forge', 'neoforge', 'quilt'];
+      const bad = modFiles.filter((f) => {
+        const n = f.toLowerCase();
+        const tagLoader = loaders.find((l) => n.includes('-' + l + '-') || n.includes('-' + l + '.') || n.includes(l + '-fabric') || n.includes(l + '-forge'));
+        if (tagLoader && tagLoader !== ml && !(ml === 'quilt' && tagLoader === 'fabric')) return true;
+        const mcv = n.match(/mc\s?(\d+\.\d+(\.\d+)?)|(\d+\.\d+(\.\d+)?)\.jar$|[-+](\d+\.\d+(\.\d+)?)([-+.])/);
+        const hint = mcv ? (mcv[1] || mcv[3] || mcv[5]) : null;
+        if (hint && mc && !mc.startsWith(hint) && !hint.startsWith(mc)) return true;
+        return false;
+      });
+      if (bad.length) {
+        sendLog(`⚠️ ${bad.length} mod(s) parecem de OUTRO loader/versão e podem crashar: ` + bad.slice(0, 6).join(', ') + (bad.length > 6 ? '…' : ''));
+        sendLog(`Dica: jogando ${mc} (${ml}). Desative-os na aba Mods ou baixe as builds certas no catálogo.`);
+      }
     }
   } catch {}
 
