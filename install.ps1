@@ -12,7 +12,15 @@ $ProgressPreference = 'SilentlyContinue' # download 10x mais rápido no PS 5.1
 $Repo = 'contasuportedis-png/CraftLauncher'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
+# Log completo para diagnóstico remoto: se falhar, envie este arquivo
+$LogFile = "$env:TEMP\cl-install.log"
+try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+try { Start-Transcript -Path $LogFile -Force -ErrorAction Stop } catch {}
+function Stop-Log { try { Stop-Transcript } catch {} }
+function Die([int]$code = 1) { Stop-Log; exit $code }
+
 Write-Host '⛏️  Instalando CraftLauncher...' -ForegroundColor Green
+Write-Host ("📝 Log em: " + $LogFile + " (me envie se falhar)")
 
 function Get-JavaOutput {
   # Roda `java -version` redirecionando para ARQUIVO: evita que o stderr vire
@@ -112,7 +120,8 @@ if ($SkipJava) {
     Write-Host '   SEM PROBLEMA: pule o Java — o app baixa sozinho ao jogar. Rode:'
     Write-Host '   powershell -NoProfile -ExecutionPolicy Bypass -Command "$g=''https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/main/install.ps1''; $t=$env:TEMP+''\cl-install.ps1''; Invoke-WebRequest -UseBasicParsing $g -OutFile $t; Start-Process powershell -ArgumentList ''-NoProfile'',''-ExecutionPolicy'',''Bypass'',''-File'',$t,''-SkipJava'' -Wait"'
     Write-Host '   Ou instale o Java manualmente em https://adoptium.net (versão 21) e rode de novo.'
-    exit 1
+    Write-Host ("   📝 Me envie o log: " + $LogFile)
+    Die 1
   }
 }
 Write-Host ("☕ " + (Get-JavaDesc))
@@ -135,10 +144,12 @@ try {
   Write-Host ('❌ Erro: ' + $_.Exception.Message) -ForegroundColor Red
   Write-Host '   Alternativa: baixe e rode manualmente em:'
   Write-Host ("   https://github.com/$Repo/releases/latest")
-  exit 1
+  Write-Host ("   📝 Me envie o log: " + $LogFile)
+  Die 1
 }
 
 Write-Host ''
 Write-Host '✅ Pronto! Abra "CraftLauncher" no Menu Iniciar para jogar.' -ForegroundColor Green
 Write-Host '   Primeiro launch de cada versão baixa ~200-500 MB do Minecraft.'
 Write-Host '   (Se o SmartScreen avisar, clique "Mais informações > Executar assim mesmo".)'
+Stop-Log
