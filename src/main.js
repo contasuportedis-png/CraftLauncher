@@ -109,6 +109,38 @@ function createWindow() {
 }
 
 // ---------- helpers ----------
+function safeChildPath(root, name = '') {
+  const base = path.resolve(root);
+  const target = path.resolve(base, String(name));
+  if (target !== base && !target.startsWith(base + path.sep)) {
+    throw new Error('Caminho inválido');
+  }
+  return target;
+}
+function profileKey(version, loader) {
+  return `${String(version || 'unknown')}-${String(loader || 'vanilla').toLowerCase()}`
+    .replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+function activeGameDir(settings) {
+  const base = settings.gameDir;
+  if (!base) return base;
+  return path.join(base, 'profiles', profileKey(settings.version, settings.modloader));
+}
+async function backupProfile(root) {
+  if (!fs.existsSync(root)) return null;
+  const backupRoot = path.join(path.dirname(root), 'backups');
+  fs.mkdirSync(backupRoot, { recursive: true });
+  const target = path.join(backupRoot, `${path.basename(root)}-${new Date().toISOString().replace(/[:.]/g, '-')}.tar.gz`);
+  const tar = require('tar');
+  const entries = ['saves', 'mods', 'config', 'options.txt'].filter((entry) => fs.existsSync(path.join(root, entry)));
+  if (!entries.length) return null;
+  await tar.c({ gzip: true, file: target, cwd: root }, entries);
+  return target;
+}
+async function getActiveGameDir() {
+  const s = await getStore();
+  return activeGameDir(s.store);
+}
 function detectJavaCandidates() {
   const list = [];
   const exe = process.platform === 'win32' ? 'java.exe' : 'java';
@@ -280,23 +312,25 @@ async function downloadManagedJava(major, gameDir) {
       const res = await fetch(url);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const total = parseInt(res.headers.get('content-length') || '0', 10);
-      const chunks = [];
+      const out = fs.createWriteStream(tmp);
       let got = 0, lastPct = -1;
       for await (const chunk of res.body) {
-        chunks.push(chunk);
+        if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
         got += chunk.length;
         if (total > 0) {
           const pct = Math.floor((got / total) * 100);
           if (pct >= lastPct + 25) { lastPct = pct; sendLog(`Java ${major}: ${pct}% (${(got / 1048576).toFixed(0)} MB)`); }
         }
       }
-      const buf = Buffer.concat(chunks);
-      if (buf.length < 20 * 1024 * 1024) throw new Error(`download incompleto (${(buf.length / 1024).toFixed(0)} KB)`);
-      fs.writeFileSync(tmp, buf);
+      await new Promise((resolve, reject) => { out.end(resolve); out.on('error', reject); });
+      const downloaded = fs.statSync(tmp).size;
+      if (downloaded < 20 * 1024 * 1024) throw new Error(`download incompleto (${(downloaded / 1024).toFixed(0)} KB)`);
       sendLog(`Extraindo Java ${major}... (pode levar 1-2 min)`);
       fs.rmSync(destDir, { recursive: true, force: true });
       fs.mkdirSync(destDir, { recursive: true });
-      const isZip = buf[0] === 0x50 && buf[1] === 0x4b;
+      const header = Buffer.alloc(2);
+      const fd = fs.openSync(tmp, 'r'); fs.readSync(fd, header, 0, 2, 0); fs.closeSync(fd);
+      const isZip = header[0] === 0x50 && header[1] === 0x4b;
       if (isZip) {
         const AdmZip = require('adm-zip');
         new AdmZip(tmp).extractAllTo(destDir, true);
@@ -360,6 +394,29 @@ async function fetchJSON(url, opts = {}) {
   const res = await fetch(url, opts);
   if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
   return res.json();
+}
+async function downloadFileWithRetry(url, dest, attempts = 3) {
+  let last;
+  for (let i = 1; i <= attempts; i++) {
+    const tmp = `${dest}.part`;
+    try {
+      const res = await fetch(url, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const out = fs.createWriteStream(tmp);
+      for await (const chunk of res.body) {
+        if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
+      }
+      await new Promise((resolve, reject) => { out.end(resolve); out.on('error', reject); });
+      if (fs.statSync(tmp).size < 1024) throw new Error('arquivo baixado vazio ou incompleto');
+      fs.renameSync(tmp, dest);
+      return;
+    } catch (err) {
+      last = err;
+      try { fs.rmSync(tmp, { force: true }); } catch {}
+      if (i < attempts) await new Promise((resolve) => setTimeout(resolve, 700 * i));
+    }
+  }
+  throw new Error(`download falhou após ${attempts} tentativas: ${last?.message || 'erro desconhecido'}`);
 }
 
 // UUID v3 offline estável (igual ao vanilla): md5("OfflinePlayer:"+name)
@@ -487,7 +544,7 @@ ipcMain.handle('dialog:selectSkin', async () => {
   if (r.canceled) return null;
   const src = r.filePaths[0];
   const s = await getStore();
-  const destDir = path.join(s.get('gameDir'), 'skins');
+  const destDir = path.join(activeGameDir(s.store), 'skins');
   fs.mkdirSync(destDir, { recursive: true });
   const base = 'skin-' + Date.now() + '.png';
   const dest = path.join(destDir, base);
@@ -498,8 +555,7 @@ ipcMain.handle('dialog:selectSkin', async () => {
 });
 
 ipcMain.handle('folder:open', async (e, sub = '') => {
-  const s = await getStore();
-  const dir = path.join(s.get('gameDir'), sub);
+  const dir = safeChildPath(await getActiveGameDir(), sub);
   fs.mkdirSync(dir, { recursive: true });
   await shell.openPath(dir);
   return dir;
@@ -508,16 +564,17 @@ ipcMain.handle('folder:open', async (e, sub = '') => {
 // ---------- skins ----------
 ipcMain.handle('skins:list', async () => {
   const s = await getStore();
-  const dir = path.join(s.get('gameDir'), 'skins');
+  const dir = path.join(activeGameDir(s.store), 'skins');
   fs.mkdirSync(dir, { recursive: true });
+  const active = s.get('skinPath') || path.join(dir, 'skin.png');
   return fs.readdirSync(dir).filter((f) => f.endsWith('.png')).map((f) => ({
-    name: f, path: path.join(dir, f), active: path.join(dir, f) === s.get('skinPath') || (f === 'skin.png')
+    name: f, path: path.join(dir, f), active: path.resolve(path.join(dir, f)) === path.resolve(active)
   }));
 });
 ipcMain.handle('skins:apply', async (e, name) => {
   const s = await getStore();
-  const dir = path.join(s.get('gameDir'), 'skins');
-  const src = path.join(dir, name);
+  const dir = path.join(activeGameDir(s.store), 'skins');
+  const src = safeChildPath(dir, name);
   const dest = path.join(dir, 'skin.png');
   fs.copyFileSync(src, dest);
   s.set('skinPath', dest);
@@ -526,14 +583,16 @@ ipcMain.handle('skins:apply', async (e, name) => {
 ipcMain.handle('skins:delete', async (e, name) => {
   if (name === 'skin.png') return { ok: false, error: 'skin ativa não pode ser excluída' };
   const s = await getStore();
-  fs.rmSync(path.join(s.get('gameDir'), 'skins', name), { force: true });
+  const target = safeChildPath(path.join(activeGameDir(s.store), 'skins'), name);
+  fs.rmSync(target, { force: true });
+  if (s.get('skinPath') === target) s.set('skinPath', '');
   return { ok: true };
 });
 
 // ---------- mods ----------
 ipcMain.handle('mods:list', async () => {
   const s = await getStore();
-  const dir = path.join(s.get('gameDir'), 'mods');
+  const dir = path.join(activeGameDir(s.store), 'mods');
   fs.mkdirSync(dir, { recursive: true });
   return fs.readdirSync(dir)
     .filter((f) => f.endsWith('.jar') || f.endsWith('.jar.disabled'))
@@ -547,8 +606,8 @@ ipcMain.handle('mods:list', async () => {
 });
 ipcMain.handle('mods:toggle', async (e, name) => {
   const s = await getStore();
-  const dir = path.join(s.get('gameDir'), 'mods');
-  const cur = path.join(dir, name);
+  const dir = path.join(activeGameDir(s.store), 'mods');
+  const cur = safeChildPath(dir, name);
   let next;
   if (name.endsWith('.disabled')) next = path.join(dir, name.replace(/\.disabled$/, ''));
   else next = cur + '.disabled';
@@ -557,7 +616,7 @@ ipcMain.handle('mods:toggle', async (e, name) => {
 });
 ipcMain.handle('mods:delete', async (e, name) => {
   const s = await getStore();
-  fs.rmSync(path.join(s.get('gameDir'), 'mods', name), { force: true });
+  fs.rmSync(safeChildPath(path.join(activeGameDir(s.store), 'mods'), name), { force: true });
   return { ok: true };
 });
 
@@ -602,17 +661,20 @@ ipcMain.handle('mods:installModrinth', async (e, { slug, fallbacks = [], loader,
       // prefere build marcado com o loader atual; senão o primeiro (ex: fabric p/ quilt)
       const best = versions.find((v) => (v.loaders || []).includes(ld)) || versions[0];
       const file = best.files.find((f) => f.primary) || best.files[0];
-      const modsDir = path.join(s.get('gameDir'), 'mods');
+      if (!file || !file.url || !file.filename.toLowerCase().endsWith('.jar')) {
+        throw new Error(`build inválida de ${c}`);
+      }
+      const required = (best.dependencies || []).filter((d) => d.dependency_type === 'required').map((d) => d.project_id || d.file_name);
+      if (required.length) sendLog(`Dependências obrigatórias detectadas: ${required.join(', ')}.`);
+      const modsDir = path.join(activeGameDir({ ...s.store, version: mc, modloader: ld }), 'mods');
       fs.mkdirSync(modsDir, { recursive: true });
-      const dest = path.join(modsDir, file.filename);
+       const dest = safeChildPath(modsDir, file.filename);
       if (fs.existsSync(dest)) {
         sendLog('Já instalado: mods/' + file.filename);
         return { ok: true, file: file.filename, slug: c, loader: ld, already: true };
       }
       sendLog('Baixando ' + file.filename + '...');
-      const dl = await fetch(file.url);
-      if (!dl.ok) throw new Error('download HTTP ' + dl.status);
-      fs.writeFileSync(dest, Buffer.from(await dl.arrayBuffer()));
+      await downloadFileWithRetry(file.url, dest);
       sendLog('Instalado: mods/' + file.filename);
       return { ok: true, file: file.filename, slug: c, loader: ld };
     } catch (err) {
@@ -767,7 +829,7 @@ function profileJvmArgs(root, customId) {
 }
 
 // roda o installer e retorna { code, createdId }
-function runJavaInstaller(jarPath, gameDir) {
+function runJavaInstaller(jarPath, gameDir, mcVersion) {
   return new Promise(async (resolve) => {
     sendLog('Executando installer: ' + path.basename(jarPath));
     sendLog('Isso pode levar alguns minutos (baixa ~200-400 MB)…');
@@ -776,7 +838,7 @@ function runJavaInstaller(jarPath, gameDir) {
     // installer moderno exige Java 17+: usa o gerenciado se o sistema não servir
     let javaBin = 'java';
     try {
-      const ji = await ensureJava((s && s.get('version')) || '1.21.1', (s && s.get('javaPath')) || '', gameDir);
+      const ji = await ensureJava(mcVersion || (s && s.get('version')) || '1.21.1', (s && s.get('javaPath')) || '', gameDir);
       javaBin = ji.bin;
     } catch (err) {
       sendLog('AVISO installer: ' + err.message);
@@ -835,10 +897,11 @@ ipcMain.handle('modloader:installForge', async (e, { mcVersion, build }) => {
     if (!dl.ok) throw new Error('installer HTTP ' + dl.status + ' — abra files.minecraftforge.net manualmente');
     const tmp = path.join(app.getPath('temp'), `forge-${full}-installer.jar`);
     fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
-    ensureLauncherProfile(s.get('gameDir'));
-    const { code, createdId } = await runJavaInstaller(tmp, s.get('gameDir'));
+    const installRoot = activeGameDir({ ...s.store, version: mc, modloader: 'forge' });
+    ensureLauncherProfile(installRoot);
+    const { code, createdId } = await runJavaInstaller(tmp, installRoot, mc);
     if (code !== 0) return { ok: false, error: 'installer saiu com código ' + code + ' — veja os logs acima' };
-    const done = await finishModloaderInstall(s.get('gameDir'), createdId, 'forge');
+    const done = await finishModloaderInstall(installRoot, createdId, 'forge');
     return { ok: true, ...done };
   } catch (err) {
     sendLog('Falha Forge: ' + err.message);
@@ -870,10 +933,12 @@ ipcMain.handle('modloader:installNeoForge', async (e, { neoVersion }) => {
     }
     const tmp = path.join(app.getPath('temp'), `neoforge-${nv}-installer.jar`);
     fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
-    ensureLauncherProfile(s.get('gameDir'));
-    const { code, createdId } = await runJavaInstaller(tmp, s.get('gameDir'));
+    const mc = s.get('version');
+    const installRoot = activeGameDir({ ...s.store, version: mc, modloader: 'neoforge' });
+    ensureLauncherProfile(installRoot);
+    const { code, createdId } = await runJavaInstaller(tmp, installRoot, mc);
     if (code !== 0) return { ok: false, error: 'installer saiu com código ' + code + ' — veja os logs acima' };
-    const done = await finishModloaderInstall(s.get('gameDir'), createdId, 'neoforge');
+    const done = await finishModloaderInstall(installRoot, createdId, 'neoforge');
     return { ok: true, ...done };
   } catch (err) {
     sendLog('Falha NeoForge: ' + err.message);
@@ -910,6 +975,40 @@ async function installQuiltProfile(root, mcVersion, loaderVersion) {
   return profile.id;
 }
 
+async function ensureModloaderInstalled(kind, mcVersion, root) {
+  const needle = kind === 'forge' ? 'forge-' : 'neoforge';
+  const existing = detectCustomVersion(root, needle);
+  if (existing && readCustomInherits(root, existing) === mcVersion) return existing;
+  sendLog(`${kind}: não encontrado para MC ${mcVersion}; instalando automaticamente...`);
+  let url;
+  if (kind === 'forge') {
+    const data = await fetchJSON('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json');
+    const build = data.promos[`${mcVersion}-recommended`] || data.promos[`${mcVersion}-latest`];
+    if (!build) throw new Error(`não há build Forge disponível para ${mcVersion}`);
+    const full = `${mcVersion}-${build}`;
+    url = `https://maven.minecraftforge.net/net/minecraftforge/forge/${full}/forge-${full}-installer.jar`;
+  } else {
+    const data = await fetchJSON('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge');
+    const parts = String(mcVersion).split('.');
+    const prefix = `${parts[1] || '21'}.${parts[2] || '0'}.`;
+    const version = (data.versions || []).filter((v) => String(v).startsWith(prefix)).slice(-1)[0];
+    if (!version) throw new Error(`não há build NeoForge compatível com ${mcVersion}`);
+    url = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`;
+  }
+  const dl = await fetch(url);
+  if (!dl.ok) throw new Error(`download do installer falhou (HTTP ${dl.status})`);
+  const tmp = path.join(app.getPath('temp'), `${kind}-auto-installer.jar`);
+  fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
+  try {
+    ensureLauncherProfile(root);
+    const result = await runJavaInstaller(tmp, root, mcVersion);
+    if (result.code !== 0) throw new Error(`installer terminou com código ${result.code}`);
+    return (await finishModloaderInstall(root, result.createdId, kind)).id;
+  } finally {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+  }
+}
+
 function detectCustomVersion(root, needle) {
   try {
     const dir = path.join(root, 'versions');
@@ -933,7 +1032,13 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
   });
 
   const username = (settings.username || 'Steve').slice(0, 16) || 'Steve';
-  const root = settings.gameDir;
+  const root = activeGameDir(settings);
+  try {
+    const backup = await backupProfile(root);
+    if (backup) sendLog('Backup criado: ' + path.basename(backup));
+  } catch (err) {
+    sendLog('AVISO: backup não criado: ' + err.message);
+  }
   fs.mkdirSync(root, { recursive: true });
   for (const sub of ['mods', 'resourcepacks', 'shaderpacks', 'saves', 'screenshots']) {
     fs.mkdirSync(path.join(root, sub), { recursive: true });
@@ -1004,7 +1109,7 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
 
   // resolve profile custom já instalado: prefere o salvo no install, valida inheritsFrom
   function resolveInstalledCustom(kind) {
-    const needles = kind === 'forge' ? ['forge'] : ['neoforge', 'neoforged'];
+    const needles = kind === 'forge' ? ['forge-'] : ['neoforge', 'neoforged'];
     const candidates = [];
     const saved = settings.customVersion;
     if (saved && fs.existsSync(path.join(root, 'versions', saved, `${saved}.json`))) candidates.push(saved);
@@ -1036,7 +1141,8 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
       s.set({ customVersion: id });
       launchOpts.version = { number: settings.version, type: 'release', custom: id };
     } else if (ml === 'forge') {
-      const { id } = resolveInstalledCustom('forge');
+      let { id } = resolveInstalledCustom('forge');
+      if (!id) id = await ensureModloaderInstalled('forge', settings.version, root);
       if (id) {
         sendLog('Forge detectado: ' + id); s.set({ customVersion: id });
         launchOpts.version = { number: settings.version, type: 'release', custom: id };
@@ -1046,9 +1152,10 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
           sendLog(`JVM do Forge aplicada (${pjvm.length} args: módulos/--add-opens).`);
         }
       }
-      else { sendLog('Forge NÃO instalado para MC ' + settings.version + ' — abra a aba Modloaders e clique ⬇ Instalar. Seguindo com vanilla.'); }
+      else throw new Error('Forge não está instalado para MC ' + settings.version + '. Instale-o na aba Modloaders antes de jogar.');
     } else if (ml === 'neoforge') {
-      const { id } = resolveInstalledCustom('neoforge');
+      let { id } = resolveInstalledCustom('neoforge');
+      if (!id) id = await ensureModloaderInstalled('neoforge', settings.version, root);
       if (id) {
         sendLog('NeoForge detectado: ' + id); s.set({ customVersion: id });
         launchOpts.version = { number: settings.version, type: 'release', custom: id };
@@ -1058,10 +1165,12 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
           sendLog(`JVM do NeoForge aplicada (${pjvm.length} args: módulos/--add-opens).`);
         }
       }
-      else { sendLog('NeoForge NÃO instalado para MC ' + settings.version + ' — abra a aba Modloaders e clique ⬇ Instalar. Seguindo com vanilla.'); }
+      else throw new Error('NeoForge não está instalado para MC ' + settings.version + '. Instale-o na aba Modloaders antes de jogar.');
     }
   } catch (err) {
-    sendLog('Aviso modloader: ' + err.message + ' — seguindo com vanilla.');
+    const msg = 'ERRO no modloader: ' + err.message;
+    sendLog(msg);
+    return { ok: false, error: err.message };
   }
 
   sendLog(`Iniciando Minecraft ${settings.version} (${settings.modloader}) como ${username} [${uuid.slice(0, 8)}...]`);
@@ -1161,7 +1270,7 @@ ipcMain.handle('update:apply', async () => {
       await shell.openExternal(rel.html_url);
       return { ok: false, error: 'sem instalador para este sistema — página aberta' };
     }
-    info = { url: pick.browser_download_url, name: pick.name };
+    info = { url: pick.browser_download_url, name: pick.name, digest: pick.digest || '' };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -1171,6 +1280,13 @@ ipcMain.handle('update:apply', async () => {
     if (!res.ok) throw new Error('download HTTP ' + res.status);
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length < 20 * 1024 * 1024) throw new Error('download incompleto');
+    if (info.digest) {
+      const expected = info.digest.replace(/^sha256:/i, '').toLowerCase();
+      const actual = crypto.createHash('sha256').update(buf).digest('hex');
+      if (actual !== expected) throw new Error('hash SHA-256 da atualização não confere');
+    } else {
+      sendLog('AVISO: release não publicou SHA-256; atualização sem verificação de hash.');
+    }
     const tmp = path.join(app.getPath('temp'), info.name);
     fs.writeFileSync(tmp, buf);
 

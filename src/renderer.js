@@ -597,8 +597,17 @@ function renderCatalog() {
   if (!box) return;
   box.innerHTML = '';
   let grid = null;
+  let category = 'all';
+  const search = ($('modSearch')?.value || '').trim().toLowerCase();
+  const loaderFilter = $('modLoaderFilter')?.value || 'all';
+  const categoryFilter = $('modCategoryFilter')?.value || 'all';
   for (const entry of MOD_CATALOG) {
     if (entry.cat) {
+      category = entry.cat.includes('PERFORMANCE') ? 'performance'
+        : entry.cat.includes('GRÁFICOS') ? 'graphics'
+          : entry.cat.includes('UTILIDADES') ? 'utility'
+            : entry.cat.includes('MUNDO') ? 'world' : 'all';
+      if (categoryFilter !== 'all' && categoryFilter !== category) { grid = null; continue; }
       const t = document.createElement('div');
       t.className = 'mod-cat-title';
       t.textContent = entry.cat;
@@ -610,6 +619,10 @@ function renderCatalog() {
     }
     const cur = $('modloader').value || 'vanilla';
     const supportsCur = entry.loaders.includes(cur);
+    const text = `${entry.name} ${entry.desc} ${entry.loaders.join(' ')}`.toLowerCase();
+    if ((loaderFilter !== 'all' && !entry.loaders.includes(loaderFilter)) ||
+        (categoryFilter !== 'all' && category !== categoryFilter) ||
+        (search && !text.includes(search))) continue;
     const installed = entry.check.some((p) => installedMods.some((m) => m.toLowerCase().startsWith(p)));
     const card = document.createElement('div');
     card.className = 'mod-card' + (installed ? ' installed' : '');
@@ -675,6 +688,9 @@ $('btnSkinMod2').onclick = activateSkin;
 $('skinModel').onchange = collectAndSave;
 
 $('btnRefreshMods').onclick = loadMods;
+$('modSearch').oninput = renderCatalog;
+$('modLoaderFilter').onchange = renderCatalog;
+$('modCategoryFilter').onchange = renderCatalog;
 $('btnMods').onclick = () => window.api.openFolder('mods');
 $('btnResourcepacks').onclick = () => window.api.openFolder('resourcepacks');
 $('btnShaders').onclick = () => window.api.openFolder('shaderpacks');

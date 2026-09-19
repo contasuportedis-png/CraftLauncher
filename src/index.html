@@ -15,7 +15,7 @@
   <div class="brand-block">
     <div class="cube-logo" title="CraftLauncher"><span class="cube-grass"></span><span class="cube-dirt"></span></div>
     <div>
-      <h1>CraftLauncher <span class="ver-badge">2.0</span></h1>
+        <h1>CraftLauncher <span class="ver-badge">2.2.1</span></h1>
       <p>Java Edition • offline • <span class="hl">NeoForge</span> ready</p>
     </div>
   </div>
@@ -216,6 +216,11 @@
       </div>
       <div id="vanillaWarn" class="warn" style="display:none">⚠️ Você está no <b>Vanilla</b> — arquivos na pasta mods <b>não carregam</b> sem modloader. Troque para <b>Fabric</b> na barra lateral (ou instale abaixo e eu troco sozinho).</div>
       <h3>Catálogo 1-clique <span class="micro-inline">(sempre da versão + loader selecionados)</span></h3>
+      <div class="row wrap catalog-filters">
+        <input id="modSearch" class="grow" placeholder="🔎 Procurar mod…" />
+        <select id="modLoaderFilter"><option value="all">Todos os loaders</option><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option></select>
+        <select id="modCategoryFilter"><option value="all">Todas as categorias</option><option value="performance">Performance</option><option value="graphics">Gráficos</option><option value="utility">Utilidades</option><option value="world">Mundo e skins</option></select>
+      </div>
       <div id="modCatalog"></div>
       <h3>Mods instalados (<span id="modsCount">0</span>)</h3>
       <div id="modsList" class="mods-list"></div>
