@@ -644,19 +644,21 @@ async function modAvailability(slug) {
   }
 }
 
-ipcMain.handle('mods:installModrinth', async (e, { slug, fallbacks = [], loader, mcVersion }) => {
+ipcMain.handle('mods:installModrinth', async (e, { slug, fallbacks = [], loader, mcVersion, dir = 'mods' }) => {
   const s = await getStore();
   const mc = mcVersion || s.get('version');
   let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
   if (ld === 'vanilla') ld = 'fabric';
-  // Quilt roda jars de Fabric: aceita builds dos dois
-  const effLoaders = ld === 'quilt' ? ['fabric', 'quilt'] : [ld];
+  // Quilt roda jars de Fabric: aceita builds dos dois. Shaders/datapacks: sem filtro de loader.
+  const effLoaders = dir === 'mods' ? (ld === 'quilt' ? ['fabric', 'quilt'] : [ld]) : null;
   const chain = [slug, ...(fallbacks || [])].filter(Boolean);
   let lastErr = 'desconhecido';
   for (const c of chain) {
-    sendLog(`Buscando ${c} no Modrinth (${mc}/${ld})...`);
+    sendLog(`Buscando ${c} no Modrinth (${mc}${dir === 'mods' ? '/' + ld : ''})...`);
     try {
-      const url = `https://api.modrinth.com/v2/project/${c}/version?loaders=${encodeURIComponent(JSON.stringify(effLoaders))}&game_versions=${encodeURIComponent(JSON.stringify([mc]))}`;
+      const params = [`game_versions=${encodeURIComponent(JSON.stringify([mc]))}`];
+      if (effLoaders) params.unshift(`loaders=${encodeURIComponent(JSON.stringify(effLoaders))}`);
+      const url = `https://api.modrinth.com/v2/project/${c}/version?${params.join('&')}`;
       const versions = await fetchJSON(url, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
       if (!versions.length) {
         const av = await modAvailability(c);
@@ -668,21 +670,24 @@ ipcMain.handle('mods:installModrinth', async (e, { slug, fallbacks = [], loader,
       // prefere build marcado com o loader atual; senão o primeiro (ex: fabric p/ quilt)
       const best = versions.find((v) => (v.loaders || []).includes(ld)) || versions[0];
       const file = best.files.find((f) => f.primary) || best.files[0];
-      if (!file || !file.url || !file.filename.toLowerCase().endsWith('.jar')) {
+      const extOk = dir === 'mods'
+        ? file && file.url && file.filename.toLowerCase().endsWith('.jar')
+        : file && file.url && /\.(jar|zip)$/i.test(file.filename);
+      if (!extOk) {
         throw new Error(`build inválida de ${c}`);
       }
       const required = (best.dependencies || []).filter((d) => d.dependency_type === 'required').map((d) => d.project_id || d.file_name);
       if (required.length) sendLog(`Dependências obrigatórias detectadas: ${required.join(', ')}.`);
-      const modsDir = path.join(activeGameDir({ ...s.store, version: mc, modloader: ld }), 'mods');
+      const modsDir = path.join(activeGameDir({ ...s.store, version: mc, modloader: ld }), dir);
       fs.mkdirSync(modsDir, { recursive: true });
        const dest = safeChildPath(modsDir, file.filename);
       if (fs.existsSync(dest)) {
-        sendLog('Já instalado: mods/' + file.filename);
+        sendLog('Já instalado: ' + dir + '/' + file.filename);
         return { ok: true, file: file.filename, slug: c, loader: ld, already: true };
       }
       sendLog('Baixando ' + file.filename + '...');
       await downloadFileWithRetry(file.url, dest);
-      sendLog('Instalado: mods/' + file.filename);
+      sendLog('Instalado: ' + dir + '/' + file.filename);
       return { ok: true, file: file.filename, slug: c, loader: ld };
     } catch (err) {
       lastErr = err.message;
@@ -890,6 +895,11 @@ ipcMain.handle('modloader:installForge', async (e, { mcVersion, build }) => {
   const mc = mcVersion || s.get('version');
   const forgeVer = build || null;
   try {
+    // Forge morreu na 1.20.1 — para 1.21+ o caminho é NeoForge
+    const m = String(mc).match(/^(\d+)\.(\d+)/);
+    if (m && (parseInt(m[1], 10) > 1 || (parseInt(m[1], 10) === 1 && parseInt(m[2], 10) >= 21))) {
+      throw new Error(`Forge não existe para MC ${mc} (só até 1.20.1). Para ${mc} use ⚡ NeoForge na aba Modloaders.`);
+    }
     // descobre build se não informado
     let bv = forgeVer;
     if (!bv) {
