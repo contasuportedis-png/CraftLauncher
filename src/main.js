@@ -264,35 +264,63 @@ function findManagedJavaBin(dir) {
 async function downloadManagedJava(major, gameDir) {
   const plat = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux';
   const arch = process.arch === 'arm64' ? 'aarch64' : 'x64';
-  const url = `https://api.adoptium.net/v3/binary/latest/${major}/ga/${plat}/${arch}/jre/hotspot/normal/eclipse`;
+  const urls = [
+    `https://api.adoptium.net/v3/binary/latest/${major}/ga/${plat}/${arch}/jre/hotspot/normal/eclipse`
+  ];
+  // Java 21 tem espelho da Microsoft (só Windows x64 tem build MS para 8/17? MS publica 17 e 21)
+  if (major === 21 && plat === 'windows' && arch === 'x64') {
+    urls.push('https://aka.ms/download-jdk/microsoft-jdk-21-windows-x64.zip');
+  }
   const destDir = path.join(gameDir, 'runtime', `java-${major}`);
-  sendLog(`Baixando Java ${major} (Temurin JRE ~190 MB, uma vez só)...`);
-  const tmp = path.join(app.getPath('temp'), `temurin-${major}-${plat}-${arch}.pkg`);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Adoptium HTTP ' + res.status);
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.writeFileSync(tmp, buf);
-  sendLog(`Extraindo Java ${major}... (pode levar 1-2 min)`);
-  fs.rmSync(destDir, { recursive: true, force: true });
-  fs.mkdirSync(destDir, { recursive: true });
-  const isZip = buf[0] === 0x50 && buf[1] === 0x4b;
-  if (isZip) {
-    const AdmZip = require('adm-zip');
-    new AdmZip(tmp).extractAllTo(destDir, true);
-  } else {
-    const tar = require('tar');
-    await tar.x({ file: tmp, cwd: destDir });
+  const tmp = path.join(app.getPath('temp'), `cl-java-${major}-${plat}-${arch}.pkg`);
+  let lastErr = 'sem fonte';
+  for (const url of urls) {
+    try {
+      sendLog(`Baixando Java ${major} (~50-190 MB, uma vez só)...`);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const total = parseInt(res.headers.get('content-length') || '0', 10);
+      const chunks = [];
+      let got = 0, lastPct = -1;
+      for await (const chunk of res.body) {
+        chunks.push(chunk);
+        got += chunk.length;
+        if (total > 0) {
+          const pct = Math.floor((got / total) * 100);
+          if (pct >= lastPct + 25) { lastPct = pct; sendLog(`Java ${major}: ${pct}% (${(got / 1048576).toFixed(0)} MB)`); }
+        }
+      }
+      const buf = Buffer.concat(chunks);
+      if (buf.length < 20 * 1024 * 1024) throw new Error(`download incompleto (${(buf.length / 1024).toFixed(0)} KB)`);
+      fs.writeFileSync(tmp, buf);
+      sendLog(`Extraindo Java ${major}... (pode levar 1-2 min)`);
+      fs.rmSync(destDir, { recursive: true, force: true });
+      fs.mkdirSync(destDir, { recursive: true });
+      const isZip = buf[0] === 0x50 && buf[1] === 0x4b;
+      if (isZip) {
+        const AdmZip = require('adm-zip');
+        new AdmZip(tmp).extractAllTo(destDir, true);
+      } else {
+        const tar = require('tar');
+        await tar.x({ file: tmp, cwd: destDir });
+      }
+      const bin = findManagedJavaBin(destDir);
+      if (!bin) throw new Error('extração ok mas binário java não encontrado');
+      if (process.platform !== 'win32') {
+        try { fs.chmodSync(bin, 0o755); } catch {}
+      }
+      const check = await javaVersionOf(bin);
+      if (!check.ok || check.major < major) throw new Error('java baixado inválido: ' + (check.raw || check.major));
+      sendLog(`Java ${major} pronto: ${check.raw.slice(0, 60)}`);
+      try { fs.rmSync(tmp, { force: true }); } catch {}
+      return bin;
+    } catch (err) {
+      lastErr = err.message;
+      sendLog(`Fonte Java falhou (${url.split('/')[2]}): ${lastErr} — tentando próxima...`);
+    }
   }
   try { fs.rmSync(tmp, { force: true }); } catch {}
-  if (process.platform !== 'win32') {
-    try { fs.chmodSync(findManagedJavaBin(destDir), 0o755); } catch {}
-  }
-  const bin = findManagedJavaBin(destDir);
-  if (!bin) throw new Error('extração ok mas binário java não encontrado');
-  const check = await javaVersionOf(bin);
-  if (!check.ok) throw new Error('java baixado não executa: ' + check.raw);
-  sendLog(`Java ${major} pronto: ${check.raw.slice(0, 60)}`);
-  return bin;
+  throw new Error('download do Java ' + major + ' falhou: ' + lastErr);
 }
 
 // Resolve o java ideal: 1) escolha do usuário (se atende o MC), 2) gerenciado, 3) baixa sozinho, 4) PATH
@@ -707,6 +735,37 @@ function readCustomInherits(root, id) {
   } catch { return null; }
 }
 
+// mclc ignora o arguments.jvm do profile custom — sem ele, Forge/NeoForge crasham
+// no Java 16+ (InaccessibleObjectException no SecureJar). Extraímos e aplicamos.
+function profileJvmArgs(root, customId) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(root, 'versions', customId, `${customId}.json`), 'utf8'));
+    const raw = (j.arguments && j.arguments.jvm) || [];
+    if (!raw.length) return [];
+    const libDir = path.join(root, 'libraries');
+    const sep = process.platform === 'win32' ? ';' : ':';
+    const osName = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
+    const allowRule = (rules) => {
+      let allow = false;
+      for (const r of rules || []) {
+        if (r.os && r.os.name && r.os.name !== osName) continue;
+        allow = r.action === 'allow';
+      }
+      return allow;
+    };
+    const out = [];
+    for (const e of raw) {
+      if (typeof e === 'string') out.push(e);
+      else if (e && Array.isArray(e.value)) { if (!e.rules || allowRule(e.rules)) out.push(...e.value); }
+      else if (e && typeof e.value === 'string') { if (!e.rules || allowRule(e.rules)) out.push(e.value); }
+    }
+    return out.map((a) => String(a)
+      .replace(/\$\{library_directory\}/g, libDir)
+      .replace(/\$\{classpath_separator\}/g, sep)
+      .replace(/\$\{version_name\}/g, customId));
+  } catch { return []; }
+}
+
 // roda o installer e retorna { code, createdId }
 function runJavaInstaller(jarPath, gameDir) {
   return new Promise(async (resolve) => {
@@ -978,11 +1037,27 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
       launchOpts.version = { number: settings.version, type: 'release', custom: id };
     } else if (ml === 'forge') {
       const { id } = resolveInstalledCustom('forge');
-      if (id) { sendLog('Forge detectado: ' + id); s.set({ customVersion: id }); launchOpts.version = { number: settings.version, type: 'release', custom: id }; }
+      if (id) {
+        sendLog('Forge detectado: ' + id); s.set({ customVersion: id });
+        launchOpts.version = { number: settings.version, type: 'release', custom: id };
+        const pjvm = profileJvmArgs(root, id);
+        if (pjvm.length) {
+          launchOpts.customArgs = [...(launchOpts.customArgs || []), ...pjvm];
+          sendLog(`JVM do Forge aplicada (${pjvm.length} args: módulos/--add-opens).`);
+        }
+      }
       else { sendLog('Forge NÃO instalado para MC ' + settings.version + ' — abra a aba Modloaders e clique ⬇ Instalar. Seguindo com vanilla.'); }
     } else if (ml === 'neoforge') {
       const { id } = resolveInstalledCustom('neoforge');
-      if (id) { sendLog('NeoForge detectado: ' + id); s.set({ customVersion: id }); launchOpts.version = { number: settings.version, type: 'release', custom: id }; }
+      if (id) {
+        sendLog('NeoForge detectado: ' + id); s.set({ customVersion: id });
+        launchOpts.version = { number: settings.version, type: 'release', custom: id };
+        const pjvm = profileJvmArgs(root, id);
+        if (pjvm.length) {
+          launchOpts.customArgs = [...(launchOpts.customArgs || []), ...pjvm];
+          sendLog(`JVM do NeoForge aplicada (${pjvm.length} args: módulos/--add-opens).`);
+        }
+      }
       else { sendLog('NeoForge NÃO instalado para MC ' + settings.version + ' — abra a aba Modloaders e clique ⬇ Instalar. Seguindo com vanilla.'); }
     }
   } catch (err) {
@@ -991,6 +1066,14 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
 
   sendLog(`Iniciando Minecraft ${settings.version} (${settings.modloader}) como ${username} [${uuid.slice(0, 8)}...]`);
   sendLog(`RAM ${settings.ramMin}G–${settings.ramMax}G | ${w}x${h}${settings.fullscreen ? ' fullscreen' : ''} | Java: ${javaPath}`);
+  try {
+    const modFiles = fs.readdirSync(path.join(root, 'mods')).filter((f) => f.endsWith('.jar'));
+    if ((settings.modloader || 'vanilla') === 'vanilla' && modFiles.length) {
+      sendLog(`AVISO: ${modFiles.length} mod(s) na pasta mas loader é Vanilla — não vão carregar. Troque para Fabric.`);
+    } else if (modFiles.length) {
+      sendLog(`Mods ativos (${modFiles.length}): ` + modFiles.slice(0, 8).join(', ') + (modFiles.length > 8 ? '…' : ''));
+    }
+  } catch {}
 
   try {
     lastLaunchAt = Date.now();
