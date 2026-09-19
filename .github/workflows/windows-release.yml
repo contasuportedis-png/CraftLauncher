@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag that will receive the installer (example: v2.2.2)
+        description: "Release tag that will receive the installer (example: v2.2.2)"
         required: true
         default: v2.2.2
 
