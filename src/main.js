@@ -105,6 +105,13 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+  mainWindow.on('close', (event) => {
+    if (mcProcess) {
+      event.preventDefault();
+      mainWindow.hide();
+      sendLog('Launcher ocultado; o Minecraft continuará rodando.');
+    }
+  });
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 }
 
@@ -1083,7 +1090,8 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
     version: { number: settings.version, type: 'release' },
     memory: { max: `${settings.ramMax}G`, min: `${settings.ramMin}G` },
     javaPath: javaPath === 'java' ? undefined : javaPath,
-    overrides: { detached: false }
+    // Mantém o jogo independente do processo do Electron quando a janela é fechada.
+    overrides: { detached: true }
   };
 
   // janela
