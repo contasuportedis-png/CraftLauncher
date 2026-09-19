@@ -7,8 +7,12 @@ REPO="contasuportedis-png/CraftLauncher"
 BIN_DIR="$HOME/.local/bin"
 DESKTOP_DIR="$HOME/.local/share/applications"
 APP="$BIN_DIR/CraftLauncher.AppImage"
+MARKER_DIR="$HOME/.local/share/craftlauncher"
+FORCE=0
+# Rodar de novo = atualizar. Use --force para baixar mesmo se já atual.
+if [ "${1:-}" = "--force" ] || [ "${1:-}" = "-f" ]; then FORCE=1; fi
 
-echo "⛏️  Instalando CraftLauncher..."
+echo "⛏️  CraftLauncher — instalação/atualização..."
 
 have_java() {
   command -v java >/dev/null 2>&1 && java -version 2>&1 | grep -qE '"(1[7-9]|[2-9][0-9])\.'
@@ -28,8 +32,19 @@ fi
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR"
 
 echo "🔎 Localizando última versão..."
-URL="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep -oE 'https://[^"]*\.AppImage' | head -1)"
+REL_JSON="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")"
+TAG="$(echo "$REL_JSON" | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)"
+URL="$(echo "$REL_JSON" | grep -oE 'https://[^"]*\.AppImage' | head -1)"
 [ -n "${URL:-}" ] || { echo "❌ Falha ao localizar o AppImage na release."; exit 1; }
+echo "📦 Última versão: ${TAG:-desconhecida}"
+
+INSTALLED="nenhuma"
+[ -f "$MARKER_DIR/version" ] && INSTALLED="$(cat "$MARKER_DIR/version")"
+if [ "$FORCE" = "0" ] && [ -n "${TAG:-}" ] && [ "$INSTALLED" = "$TAG" ] && [ -x "$APP" ]; then
+  echo "✅ Já está atualizado (${TAG}). Rode: CraftLauncher"
+  echo "   (use --force para baixar de novo)"
+  exit 0
+fi
 
 echo "⬇️  Baixando CraftLauncher..."
 curl -fSL --progress-bar -o "$APP" "$URL"
@@ -48,8 +63,10 @@ Type=Application
 Categories=Game;
 EOF
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+mkdir -p "$MARKER_DIR"
+[ -n "${TAG:-}" ] && echo "$TAG" > "$MARKER_DIR/version"
 
 echo ""
-echo "✅ Pronto! Para jogar rode no terminal: CraftLauncher"
+echo "✅ Pronto! (versão ${TAG:-atual}) Para jogar rode no terminal: CraftLauncher"
 echo "   (ou abra 'CraftLauncher' no menu de aplicativos)"
 echo "   Primeiro launch de cada versão baixa ~200-500 MB do Minecraft."

@@ -1097,6 +1097,111 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
 
 ipcMain.handle('game:isRunning', async () => !!mcProcess);
 
+// ---------- auto-update ----------
+const UPDATE_REPO = 'contasuportedis-png/CraftLauncher';
+function cmpVersions(a, b) {
+  const pa = String(a || '').replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = String(b || '').replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+async function fetchLatestRelease() {
+  const rel = await fetchJSON(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
+    headers: { 'User-Agent': 'CraftLauncher', Accept: 'application/vnd.github+json' }
+  });
+  const assets = rel.assets || [];
+  const pick = process.platform === 'win32'
+    ? assets.find((a) => /setup.*\.exe$/i.test(a.name))
+    : process.platform === 'darwin'
+      ? assets.find((a) => /\.dmg$/i.test(a.name))
+      : assets.find((a) => /\.AppImage$/i.test(a.name));
+  return { rel, pick };
+}
+
+ipcMain.handle('update:check', async () => {
+  const current = app.getVersion();
+  try {
+    const { rel, pick } = await fetchLatestRelease();
+    const latest = String(rel.tag_name || '').replace(/^v/, '');
+    return {
+      ok: true, current, latest, tag: rel.tag_name,
+      update: cmpVersions(latest, current) > 0,
+      hasAsset: !!pick, name: pick?.name, url: pick?.browser_download_url,
+      notes: String(rel.body || '').slice(0, 600), htmlUrl: rel.html_url
+    };
+  } catch (err) {
+    return { ok: false, error: err.message, current };
+  }
+});
+
+ipcMain.handle('update:openPage', async () => {
+  try {
+    const { rel } = await fetchLatestRelease();
+    await shell.openExternal(rel.html_url || `https://github.com/${UPDATE_REPO}/releases/latest`);
+    return { ok: true };
+  } catch {
+    await shell.openExternal(`https://github.com/${UPDATE_REPO}/releases/latest`);
+    return { ok: true };
+  }
+});
+
+ipcMain.handle('update:apply', async () => {
+  // Baixa o artefato da plataforma e aplica: Linux AppImage troca+reinicia,
+  // Windows roda o Setup silencioso e fecha o app. Sem asset/suporte: abre a página.
+  let info;
+  try {
+    const { pick, rel } = await fetchLatestRelease();
+    const latest = String(rel.tag_name || '').replace(/^v/, '');
+    if (cmpVersions(latest, app.getVersion()) <= 0) return { ok: false, error: 'já atualizado' };
+    if (!pick) {
+      await shell.openExternal(rel.html_url);
+      return { ok: false, error: 'sem instalador para este sistema — página aberta' };
+    }
+    info = { url: pick.browser_download_url, name: pick.name };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  try {
+    sendLog('Baixando atualização ' + info.name + '...');
+    const res = await fetch(info.url);
+    if (!res.ok) throw new Error('download HTTP ' + res.status);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 20 * 1024 * 1024) throw new Error('download incompleto');
+    const tmp = path.join(app.getPath('temp'), info.name);
+    fs.writeFileSync(tmp, buf);
+
+    if (process.platform === 'linux' && process.env.APPIMAGE) {
+      fs.chmodSync(tmp, 0o755);
+      sendLog('Trocando AppImage e reiniciando...');
+      fs.copyFileSync(tmp, process.env.APPIMAGE);
+      fs.chmodSync(process.env.APPIMAGE, 0o755);
+      try { fs.rmSync(tmp, { force: true }); } catch {}
+      const s = await getStore();
+      s.set('lastUpdateApplied', Date.now());
+      app.relaunch({ execPath: process.env.APPIMAGE, args: process.argv.slice(1) });
+      app.exit(0);
+      return { ok: true, restarted: true };
+    }
+    if (process.platform === 'win32') {
+      sendLog('Abrindo instalador da nova versão e fechando...');
+      const child = spawn(tmp, ['/S'], { detached: true, stdio: 'ignore' });
+      child.unref();
+      setTimeout(() => app.quit(), 1500);
+      return { ok: true, installer: true };
+    }
+    await shell.openPath(path.dirname(tmp));
+    await shell.openExternal(`https://github.com/${UPDATE_REPO}/releases/latest`);
+    return { ok: false, error: 'atualização baixada — abra a página da release' };
+  } catch (err) {
+    sendLog('Falha ao atualizar: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+});
+
 // notícias simples: latest + dicas
 ipcMain.handle('news:get', async () => {
   try {

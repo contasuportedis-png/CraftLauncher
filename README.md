@@ -8,6 +8,10 @@ curl -fsSL https://raw.githubusercontent.com/contasuportedis-png/CraftLauncher/m
 ```
 Isso instala o Java 21 (se faltar), baixa o AppImage da última release e cria o atalho no menu. Depois é só rodar `CraftLauncher`.
 
+## Atualizar 🔄
+- **Terminal:** rode o mesmo comando de instalação de novo — ele compara a versão instalada e só baixa se houver novidade (`--force` força o download; no Windows, `-Force`).
+- **Dentro do app:** clique em **🔄** no topo — ele verifica, mostra as novidades e atualiza sozinho (no Linux troca o AppImage e reinicia; no Windows abre o instalador novo). Checagem automática 1x ao dia.
+
 ## Windows 🪟
 **Instalação em 1 comando.**
 

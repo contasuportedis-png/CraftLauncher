@@ -104,6 +104,7 @@ async function loadAll() {
     refreshHeader(), loadVersionSelect(), loadVersionGrid(true),
     loadLoaders(), loadSkins(), loadMods(), loadConfig(), loadNews(), refreshJavaNeed()
   ]);
+  silentUpdateCheck();
 }
 
 async function refreshHeader() {
@@ -383,6 +384,50 @@ async function loadNews() {
     });
   } catch {}
 }
+
+// ---------- auto-update ----------
+async function silentUpdateCheck() {
+  try {
+    const last = parseInt(localStorage.getItem('cl_lastUpdCheck') || '0', 10);
+    if (Date.now() - last < 24 * 3600 * 1000) return;
+    const r = await window.api.updateCheck();
+    localStorage.setItem('cl_lastUpdCheck', String(Date.now()));
+    if (!r) return;
+    $('verTag').textContent = 'v' + (r.current || '?');
+    if (r.ok && r.update) {
+      $('btnUpdate').classList.add('primary');
+      toast(`Nova versão do launcher: ${r.tag} — clique em 🔄 para atualizar`);
+      log(`Atualização disponível: ${r.current} → ${r.tag}`);
+    }
+  } catch {}
+}
+$('btnUpdate').onclick = async () => {
+  toast('Verificando atualização...');
+  const r = await window.api.updateCheck();
+  if (!r) return;
+  $('verTag').textContent = 'v' + (r.current || '?');
+  if (!r.ok) { toast('Falha ao verificar: ' + (r.error || '?'), true); return; }
+  if (!r.update) {
+    $('btnUpdate').classList.remove('primary');
+    toast(`Já atualizado (v${r.current}) ✅`);
+    return;
+  }
+  $('btnUpdate').classList.add('primary');
+  const msg = `Nova versão ${r.tag} disponível (você tem v${r.current}).\n\n${(r.notes || '').slice(0, 300)}\n\nAtualizar agora?`;
+  if (!confirm(msg)) {
+    window.api.updateOpenPage();
+    return;
+  }
+  toast('Baixando atualização... acompanhe na aba Modloaders');
+  goTab('modloaders');
+  const a = await window.api.updateApply();
+  if (a.ok) {
+    toast(a.restarted ? 'Reiniciando com a nova versão...' : 'Instalador aberto — o app vai fechar');
+  } else {
+    toast('Atualização: ' + a.error, true);
+    log('Atualização: ' + a.error);
+  }
+};
 
 // ---------- save / launch ----------
 async function collectAndSave() {

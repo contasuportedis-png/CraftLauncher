@@ -6,7 +6,7 @@
 # Para instalar SÓ o app e pular o Java (o app baixa sozinho ao jogar),
 # adicione -SkipJava no final:
 #   ... -File $f -SkipJava
-param([switch]$SkipJava)
+param([switch]$SkipJava, [switch]$Force)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue' # download 10x mais rápido no PS 5.1
 $Repo = 'contasuportedis-png/CraftLauncher'
@@ -129,6 +129,18 @@ Write-Host ("☕ " + (Get-JavaDesc))
 try {
   Write-Host '🔎 Localizando última versão...'
   $rel = Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/repos/$Repo/releases/latest"
+  $tag = $rel.tag_name
+  Write-Host ("📦 Última versão: " + $tag)
+  $markerDir = Join-Path $env:APPDATA 'CraftLauncher'
+  $marker = Join-Path $markerDir 'updater-version.txt'
+  $installed = ''
+  if (Test-Path $marker) { $installed = (Get-Content $marker -Raw).Trim() }
+  if (-not $Force -and $tag -and ($installed -eq $tag)) {
+    Write-Host ("✅ Já está atualizado (" + $tag + "). Abra o CraftLauncher no Menu Iniciar.") -ForegroundColor Green
+    Write-Host '   (rode com -Force para baixar de novo)'
+    Stop-Log
+    exit 0
+  }
   $asset = $rel.assets | Where-Object { $_.name -like '*Setup*.exe' } | Select-Object -First 1
   if (-not $asset) { throw 'Instalador .exe não encontrado na release.' }
 
@@ -140,6 +152,10 @@ try {
   Write-Host '📦 Instalando (silencioso)...'
   Start-Process -FilePath $installer -ArgumentList '/S' -Wait
   Remove-Item $installer -ErrorAction SilentlyContinue
+  try {
+    if (-not (Test-Path $markerDir)) { New-Item -ItemType Directory $markerDir | Out-Null }
+    Set-Content $marker $tag
+  } catch {}
 } catch {
   Write-Host ('❌ Erro: ' + $_.Exception.Message) -ForegroundColor Red
   Write-Host '   Alternativa: baixe e rode manualmente em:'
