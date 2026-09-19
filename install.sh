@@ -47,9 +47,17 @@ if [ "$FORCE" = "0" ] && [ -n "${TAG:-}" ] && [ "$INSTALLED" = "$TAG" ] && [ -x 
 fi
 
 echo "⬇️  Baixando CraftLauncher..."
-curl -fSL --progress-bar -o "$APP" "$URL"
-[ "$(stat -c%s "$APP")" -gt 50000000 ] || { echo "❌ Download incompleto/corrompido."; exit 1; }
-chmod +x "$APP"
+# baixa em arquivo temporário + move atômico: funciona mesmo com o app ABERTO
+# (sobrescrever o binário em execução dá "Text file busy")
+TMPAPP="$APP.download"
+rm -f "$TMPAPP"
+curl -fSL --progress-bar -o "$TMPAPP" "$URL"
+[ "$(stat -c%s "$TMPAPP")" -gt 50000000 ] || { echo "❌ Download incompleto/corrompido."; rm -f "$TMPAPP"; exit 1; }
+chmod +x "$TMPAPP"
+mv -f "$TMPAPP" "$APP"
+if pgrep -f "CraftLauncher.AppImage" >/dev/null 2>&1; then
+  echo "ℹ️  O app estava aberto — feche e abra de novo para usar a nova versão."
+fi
 # atalho `CraftLauncher` no PATH
 ln -sf "$APP" "$BIN_DIR/CraftLauncher"
 

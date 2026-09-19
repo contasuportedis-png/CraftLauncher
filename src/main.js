@@ -1301,7 +1301,11 @@ ipcMain.handle('update:apply', async () => {
     if (process.platform === 'linux' && process.env.APPIMAGE) {
       fs.chmodSync(tmp, 0o755);
       sendLog('Trocando AppImage e reiniciando...');
-      fs.copyFileSync(tmp, process.env.APPIMAGE);
+      // rename atômico no MESMO diretório (rename entre filesystems falha + copiar
+      // por cima do binário em execução dá ETXTBSY)
+      const staged = process.env.APPIMAGE + '.new';
+      fs.copyFileSync(tmp, staged);
+      fs.renameSync(staged, process.env.APPIMAGE);
       fs.chmodSync(process.env.APPIMAGE, 0o755);
       try { fs.rmSync(tmp, { force: true }); } catch {}
       const s = await getStore();
