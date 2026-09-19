@@ -1,0 +1,38 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag that will receive the installer (example: v2.2.2)
+        required: true
+        default: v2.2.2
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build NSIS installer
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Attach installer to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ inputs.tag }} "dist/CraftLauncher Setup *.exe" "dist/CraftLauncher Setup *.exe.blockmap" --clobber
