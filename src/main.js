@@ -411,10 +411,40 @@ async function ensureJava(mcVersion, userJavaPath, gameDir) {
   }
 }
 
+function hostOf(url) {
+  try { return new URL(url).host; } catch { return url; }
+}
+// fetch com retry + timeout: rede instável não pode matar o install/launch de primeira
+async function fetchWithRetry(url, opts = {}, attempts = 3, timeoutMs = 30000) {
+  let last;
+  for (let i = 1; i <= attempts; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...opts, signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      last = err;
+      const reason = err?.name === 'AbortError' ? 'tempo esgotado' : (err?.cause?.message || err?.message || 'erro de rede');
+      if (i < attempts) {
+        sendLog(`Rede: ${hostOf(url)} falhou (${reason}) — tentativa ${i}/${attempts}...`);
+        await new Promise((resolve) => setTimeout(resolve, 1000 * i));
+      }
+    }
+  }
+  const reason = last?.name === 'AbortError' ? 'tempo esgotado' : (last?.cause?.message || last?.message || 'erro de rede');
+  throw new Error(`falha de rede em ${hostOf(url)} após ${attempts} tentativas (${reason})`);
+}
 async function fetchJSON(url, opts = {}) {
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
-  return res.json();
+  const res = await fetchWithRetry(url, opts);
+  try {
+    return await res.json();
+  } catch {
+    throw new Error(`resposta inválida de ${hostOf(url)}`);
+  }
 }
 async function downloadFileWithRetry(url, dest, attempts = 3) {
   let last;
@@ -984,10 +1014,9 @@ ipcMain.handle('modloader:installForge', async (e, { mcVersion, build }) => {
     const full = `${mc}-${bv}`;
     const url = `https://maven.minecraftforge.net/net/minecraftforge/forge/${full}/forge-${full}-installer.jar`;
     sendLog('Baixando Forge installer ' + full + '...');
-    const dl = await fetch(url);
-    if (!dl.ok) throw new Error('installer HTTP ' + dl.status + ' — abra files.minecraftforge.net manualmente');
     const tmp = path.join(app.getPath('temp'), `forge-${full}-installer.jar`);
-    fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
+    await downloadFileWithRetry(url, tmp);
+    if (fs.statSync(tmp).size < 1024 * 1024) throw new Error('installer Forge veio incompleto — tente de novo');
     const installRoot = activeGameDir({ ...s.store, version: mc, modloader: 'forge' });
     ensureLauncherProfile(installRoot);
     const { code, createdId } = await runJavaInstaller(tmp, installRoot, mc);
@@ -1013,8 +1042,9 @@ ipcMain.handle('modloader:installNeoForge', async (e, { neoVersion }) => {
     }
     const url = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${nv}/neoforge-${nv}-installer.jar`;
     sendLog('Baixando NeoForge installer ' + nv + '...');
-    const dl = await fetch(url);
-    if (!dl.ok) throw new Error('installer HTTP ' + dl.status);
+    const tmp = path.join(app.getPath('temp'), `neoforge-${nv}-installer.jar`);
+    await downloadFileWithRetry(url, tmp);
+    if (fs.statSync(tmp).size < 1024 * 1024) throw new Error('installer NeoForge veio incompleto — tente de novo');
     // NeoForge X.Y.* exige MC correspondente: avisa cedo em vez de instalar errado
     const needMC = neoForgeMcFor(nv);
     if (needMC) {
@@ -1023,8 +1053,6 @@ ipcMain.handle('modloader:installNeoForge', async (e, { neoVersion }) => {
         sendLog(`Atenção: NeoForge ${nv} é para MC ${needMC} (você está na ${cur}). A versão será ajustada após instalar.`);
       }
     }
-    const tmp = path.join(app.getPath('temp'), `neoforge-${nv}-installer.jar`);
-    fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
     const mc = s.get('version');
     const installRoot = activeGameDir({ ...s.store, version: mc, modloader: 'neoforge' });
     ensureLauncherProfile(installRoot);
@@ -1088,10 +1116,9 @@ async function ensureModloaderInstalled(kind, mcVersion, root) {
     if (!version) throw new Error(`não há build NeoForge compatível com ${mcVersion}`);
     url = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`;
   }
-  const dl = await fetch(url);
-  if (!dl.ok) throw new Error(`download do installer falhou (HTTP ${dl.status})`);
   const tmp = path.join(app.getPath('temp'), `${kind}-auto-installer.jar`);
-  fs.writeFileSync(tmp, Buffer.from(await dl.arrayBuffer()));
+  await downloadFileWithRetry(url, tmp);
+  if (fs.statSync(tmp).size < 1024 * 1024) throw new Error(`installer ${kind} veio incompleto — tente de novo`);
   try {
     ensureLauncherProfile(root);
     const result = await runJavaInstaller(tmp, root, mcVersion);
