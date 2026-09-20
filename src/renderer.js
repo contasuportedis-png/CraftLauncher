@@ -371,6 +371,7 @@ async function loadMods() {
       d.appendChild(t); d.appendChild(del);
       box.appendChild(d);
     });
+    loadPacks();
   } catch {}
 }
 
@@ -762,6 +763,86 @@ $('btnSkinMod2').onclick = activateSkin;
 $('skinModel').onchange = collectAndSave;
 
 $('btnRefreshMods').onclick = loadMods;
+async function loadPacks() {
+  try {
+    const list = await window.api.packsInstalled();
+    $('packInstalled').textContent = list.length
+      ? 'Instalados: ' + list.map((p) => `${p.name} (${p.mc}/${p.loader})`).join(' • ')
+      : '';
+  } catch {}
+}
+$('btnPackSearch').onclick = async () => {
+  const q = $('packQuery').value.trim();
+  if (!q) { toast('Digite o nome ou link do pack', true); return; }
+  const box = $('packResults');
+  box.innerHTML = '<div class="muted">Buscando...</div>';
+  try {
+    const hits = await window.api.packsSearch({ query: q });
+    box.innerHTML = '';
+    if (!hits.length) box.innerHTML = '<div class="muted">Nenhum pack encontrado.</div>';
+    // se for slug/URL exato, oferece as versões disponíveis
+    const exact = cleanSlug(q);
+    let vers = [];
+    if (exact) {
+      try { vers = await window.api.packsVersions({ slug: exact }); } catch {}
+    }
+    hits.slice(0, 8).forEach((h) => {
+      const d = document.createElement('div');
+      d.className = 'mod-row';
+      d.innerHTML = `<span>🎁</span><span class="name" title="${(h.description || '').slice(0, 200)}"><b>${h.title}</b><br><span class="muted">${(h.description || '').slice(0, 90)}</span></span>`;
+      if (h.slug === exact && vers.length > 1) {
+        const sel = document.createElement('select');
+        sel.style.maxWidth = '150px';
+        vers.forEach((v) => {
+          const o = document.createElement('option');
+          o.value = v.id; o.textContent = v.number;
+          sel.appendChild(o);
+        });
+        d.appendChild(sel);
+        const btn = document.createElement('button');
+        btn.className = 'btn small primary'; btn.textContent = '⬇ Instalar versão';
+        btn.onclick = () => installPack({ slug: h.slug, versionId: sel.value }, btn);
+        d.appendChild(btn);
+      } else {
+        const btn = document.createElement('button');
+        btn.className = 'btn small primary'; btn.textContent = '⬇ Instalar';
+        btn.onclick = () => installPack({ slug: h.slug }, btn);
+        d.appendChild(btn);
+      }
+      box.appendChild(d);
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="muted">Erro na busca: ' + e.message + '</div>';
+  }
+};
+function cleanSlug(s) {
+  return String(s || '').trim().split('?')[0].split('/').filter(Boolean).pop() || '';
+}
+async function installPack(args, btn) {
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = '⏳ Instalando pack…';
+  goTab('modloaders');
+  log(`Instalando modpack ${args.slug} (MC ${$('version').value}/${$('modloader').value})…`);
+  try {
+    const r = await window.api.packsInstall(args);
+    toast(r.ok ? `Pack instalado: ${r.name} ✅ (${r.files} arquivos)` : 'Falha: ' + r.error, !r.ok);
+    await loadMods();
+    await loadPacks();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
+}
+$('btnPackImport').onclick = async () => {
+  log('Importando .mrpack...');
+  const r = await window.api.packsImport();
+  if (r.ok !== false || r.error !== 'cancelado') {
+    toast(r.ok ? `Pack importado ✅ (${r.files} arquivos)` : 'Falha: ' + r.error, !r.ok);
+  }
+  await loadMods();
+  await loadPacks();
+};
 $('modSearch').oninput = renderCatalog;
 $('modLoaderFilter').onchange = renderCatalog;
 $('modCategoryFilter').onchange = renderCatalog;

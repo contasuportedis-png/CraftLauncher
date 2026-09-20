@@ -671,6 +671,181 @@ ipcMain.handle('mods:delete', async (e, name) => {
   return { ok: true };
 });
 
+// ---------- modpacks (.mrpack do Modrinth) ----------
+const PACK_LOADER_KEYS = { fabric: 'fabric-loader', quilt: 'quilt-loader', forge: 'forge', neoforge: 'neoforge' };
+function packLoaderFilter(ld) {
+  if (ld === 'quilt') return ['quilt', 'fabric'];
+  if (ld === 'vanilla') return ['fabric'];
+  return [ld];
+}
+function cleanPackSlug(input) {
+  return String(input || '').trim().split('?')[0].split('/').filter(Boolean).pop() || '';
+}
+function backupModsDir(root) {
+  const modsDir = path.join(root, 'mods');
+  let jars = [];
+  try { jars = fs.readdirSync(modsDir).filter((f) => f.endsWith('.jar') || f.endsWith('.jar.disabled')); } catch { return null; }
+  if (!jars.length) return null;
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const bak = path.join(root, `mods-backup-${stamp}`);
+  fs.mkdirSync(bak, { recursive: true });
+  for (const j of jars) fs.renameSync(path.join(modsDir, j), path.join(bak, j));
+  return bak;
+}
+async function installMrpackFile(mrpackPath, { mc, ld, gameDir }) {
+  const AdmZip = require('adm-zip');
+  const zip = new AdmZip(mrpackPath);
+  const idxEntry = zip.getEntry('modrinth.index.json');
+  if (!idxEntry) throw new Error('.mrpack inválido (sem modrinth.index.json)');
+  let idx;
+  try { idx = JSON.parse(zip.readAsText(idxEntry)); } catch { throw new Error('.mrpack corrompido (índice ilegível)'); }
+  if (idx.formatVersion !== 1 || idx.game !== 'minecraft' || !Array.isArray(idx.files)) {
+    throw new Error('.mrpack incompatível (formato desconhecido)');
+  }
+  const packMc = idx.dependencies && idx.dependencies.minecraft;
+  if (!packMc) throw new Error('pack sem versão do Minecraft declarada');
+  if (packMc !== mc) throw new Error(`pack é para MC ${packMc} — troque a versão do jogo para ${packMc} e instale de novo`);
+  const depKeys = Object.keys(idx.dependencies || {}).filter((k) => k !== 'minecraft');
+  const need = PACK_LOADER_KEYS[ld];
+  const loaderOk = depKeys.includes(need) || (ld === 'quilt' && depKeys.includes('fabric-loader'));
+  if (!loaderOk) throw new Error(`pack usa loader ${depKeys.join('/')} mas o atual é ${ld} — troque o modloader e instale de novo`);
+  const root = activeGameDir({ version: packMc, modloader: ld, gameDir });
+  fs.mkdirSync(root, { recursive: true });
+  if (ld === 'forge' || ld === 'neoforge') await ensureModloaderInstalled(ld, packMc, root);
+  const bak = backupModsDir(root);
+  if (bak) sendLog(`Mods atuais movidos para ${path.basename(bak)} (backup automático).`);
+  const files = idx.files.filter((f) => f && f.path && (f.env?.client || 'required') !== 'unsupported');
+  let ok = 0;
+  const failed = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    sendLog(`Pack [${i + 1}/${files.length}]: ${path.basename(f.path)}...`);
+    try {
+      const dest = safeChildPath(root, f.path);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      let done = false, lastErr = 'sem espelho de download';
+      for (const url of f.downloads || []) {
+        try { await downloadFileWithRetry(url, dest); done = true; break; }
+        catch (err) { lastErr = err.message; }
+      }
+      if (!done) throw new Error(lastErr);
+      const buf = fs.readFileSync(dest);
+      if (f.fileSize && buf.length !== f.fileSize) throw new Error('tamanho divergente');
+      const wantSha1 = f.hashes && f.hashes.sha1, wantSha512 = f.hashes && f.hashes.sha512;
+      if (wantSha1 && crypto.createHash('sha1').update(buf).digest('hex') !== String(wantSha1).toLowerCase()) {
+        throw new Error('sha1 divergente (arquivo corrompido)');
+      } else if (!wantSha1 && wantSha512 && crypto.createHash('sha512').update(buf).digest('hex') !== String(wantSha512).toLowerCase()) {
+        throw new Error('sha512 divergente (arquivo corrompido)');
+      }
+      ok++;
+    } catch (err) {
+      const optional = (f.env?.client || 'required') === 'optional';
+      sendLog(`${optional ? 'Opcional ignorado' : 'FALHA'}: ${path.basename(f.path)} — ${err.message}`);
+      if (!optional) failed.push(path.basename(f.path));
+    }
+  }
+  let ov = 0;
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory || !entry.entryName.startsWith('overrides/')) continue;
+    const rel = entry.entryName.slice('overrides/'.length);
+    if (!rel || rel.endsWith('/')) continue;
+    const dest = safeChildPath(root, rel);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, zip.readFile(entry));
+    ov++;
+  }
+  if (failed.length) throw new Error(`${failed.length} arquivos obrigatórios falharam: ${failed.slice(0, 5).join(', ')}${failed.length > 5 ? '…' : ''}`);
+  sendLog(`Pack instalado: ${ok} arquivos + ${ov} de config em ${path.basename(root)}`);
+  return { files: ok, overrides: ov };
+}
+ipcMain.handle('modpacks:search', async (e, { query } = {}) => {
+  const params = new URLSearchParams({ limit: '20' });
+  if (query) params.set('query', query);
+  params.set('facets', JSON.stringify([['project_type:modpack']]));
+  const data = await fetchJSON(`https://api.modrinth.com/v2/search?${params}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+  return (data.hits || []).map((h) => ({ slug: h.slug, title: h.title, description: h.description, downloads: h.downloads }));
+});
+ipcMain.handle('modpacks:versions', async (e, { slug, mcVersion, loader } = {}) => {
+  const s = await getStore();
+  const mc = mcVersion || s.get('version');
+  let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
+  if (ld === 'vanilla') ld = 'fabric';
+  slug = cleanPackSlug(slug);
+  if (!slug) throw new Error('pack não informado');
+  const params = new URLSearchParams({
+    game_versions: JSON.stringify([mc]),
+    loaders: JSON.stringify(packLoaderFilter(ld)),
+  });
+  const versions = await fetchJSON(`https://api.modrinth.com/v2/project/${encodeURIComponent(slug)}/version?${params}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+  return versions
+    .filter((v) => ((v.files.find((f) => f.primary) || v.files[0]) || {}).filename?.endsWith('.mrpack'))
+    .slice(0, 15)
+    .map((v) => ({ id: v.id, number: v.version_number, name: v.name, mc: v.game_versions, loaders: v.loaders }));
+});
+function registerInstalledPack(s, info) {
+  const packs = (s.get('installedPacks') || []).filter((p) => !(p.slug === info.slug && p.mc === info.mc && p.loader === info.loader));
+  packs.unshift({ ...info, date: new Date().toISOString() });
+  s.set({ installedPacks: packs.slice(0, 10) });
+}
+ipcMain.handle('modpacks:install', async (e, { slug, versionId, mcVersion, loader } = {}) => {
+  const s = await getStore();
+  const mc = mcVersion || s.get('version');
+  let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
+  if (ld === 'vanilla') ld = 'fabric';
+  try {
+    slug = cleanPackSlug(slug);
+    if (!slug) throw new Error('informe o nome ou link do modpack');
+    let v;
+    if (versionId) {
+      v = await fetchJSON(`https://api.modrinth.com/v2/version/${encodeURIComponent(versionId)}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+    } else {
+      const params = new URLSearchParams({
+        game_versions: JSON.stringify([mc]),
+        loaders: JSON.stringify(packLoaderFilter(ld)),
+      });
+      const list = await fetchJSON(`https://api.modrinth.com/v2/project/${encodeURIComponent(slug)}/version?${params}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+      const packs = list.filter((x) => ((x.files.find((f) => f.primary) || x.files[0]) || {}).filename?.endsWith('.mrpack'));
+      if (!packs.length) {
+        const av = await modAvailability(slug, null);
+        throw new Error(`sem versão do pack para MC ${mc} (${ld}).${av.total ? ' Versões existentes: ' + av.games.slice(0, 6).join(', ') : ' Pack não encontrado.'}`);
+      }
+      v = packs[0];
+    }
+    const file = v.files.find((f) => f.primary) || v.files[0];
+    if (!file || !file.filename.endsWith('.mrpack')) throw new Error('versão sem arquivo .mrpack');
+    sendLog(`Baixando modpack ${v.name || v.version_number} (${(file.size / 1048576).toFixed(1)} MB)...`);
+    const tmp = path.join(app.getPath('temp'), file.filename);
+    await downloadFileWithRetry(file.url, tmp);
+    const res = await installMrpackFile(tmp, { mc, ld, gameDir: s.get('gameDir') });
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    registerInstalledPack(s, { slug, name: v.name || v.version_number, version: v.version_number, mc, loader: ld, ...res });
+    return { ok: true, name: v.name || v.version_number, ...res };
+  } catch (err) {
+    sendLog('Falha modpack: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+});
+ipcMain.handle('modpacks:importFile', async () => {
+  const s = await getStore();
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: 'Importar modpack (.mrpack)', properties: ['openFile'],
+    filters: [{ name: 'Modrinth pack', extensions: ['mrpack'] }]
+  });
+  if (r.canceled || !r.filePaths.length) return { ok: false, error: 'cancelado' };
+  const mc = s.get('version');
+  let ld = (s.get('modloader') || 'fabric').toLowerCase();
+  if (ld === 'vanilla') ld = 'fabric';
+  try {
+    const res = await installMrpackFile(r.filePaths[0], { mc, ld, gameDir: s.get('gameDir') });
+    registerInstalledPack(s, { slug: path.basename(r.filePaths[0], '.mrpack'), name: path.basename(r.filePaths[0]), version: '', mc, loader: ld, ...res });
+    return { ok: true, ...res };
+  } catch (err) {
+    sendLog('Falha modpack: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+});
+ipcMain.handle('modpacks:installed', async () => (await getStore()).get('installedPacks') || []);
+
 // Modrinth: instala latest compatível, com cadeia de fallbacks e dicas de disponibilidade.
 // args: { slug, fallbacks?: string[], loader?, mcVersion? }
 async function modAvailability(slug, forLoader) {

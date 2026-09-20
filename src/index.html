@@ -221,6 +221,16 @@
         <select id="modCategoryFilter"><option value="all">Todas as categorias</option><option value="performance">Performance</option><option value="graphics">Gráficos</option><option value="shaders">Shaders</option><option value="utility">Utilidades</option><option value="world">Mundo e conteúdo</option><option value="skins">Skins</option><option value="libs">Bibliotecas</option></select>
       </div>
       <div id="modCatalog"></div>
+      <h3>🎁 Modpacks <span class="micro-inline">(dezenas de mods de uma vez, via Modrinth)</span></h3>
+      <div class="card">
+        <div class="row wrap">
+          <input id="packQuery" class="grow" placeholder="Nome ou link do pack (ex: Fabulously Optimized)" />
+          <button id="btnPackSearch" class="btn small">🔎 Buscar</button>
+          <button id="btnPackImport" class="btn small ghost">📂 Importar .mrpack</button>
+        </div>
+        <div id="packResults" class="mods-list"></div>
+        <div id="packInstalled" class="muted" style="margin-top:8px"></div>
+      </div>
       <h3>Mods instalados (<span id="modsCount">0</span>)</h3>
       <div id="modsList" class="mods-list"></div>
       <div id="modsEmpty" class="muted">Nenhum mod. Arraste arquivos .jar para a pasta mods/ ou use os botões acima.</div>
