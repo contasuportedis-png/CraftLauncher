@@ -31,11 +31,32 @@ fi
 
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR"
 
+command -v curl >/dev/null 2>&1 || { echo "❌ curl não encontrado. Instale com: sudo apt install curl"; exit 1; }
+
 echo "🔎 Localizando última versão..."
-REL_JSON="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")"
-TAG="$(echo "$REL_JSON" | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)"
-URL="$(echo "$REL_JSON" | grep -oE 'https://[^"]*\.AppImage' | head -1)"
-[ -n "${URL:-}" ] || { echo "❌ Falha ao localizar o AppImage na release."; exit 1; }
+TMPREL="${TMPDIR:-/tmp}/cl-rel.json"
+REL_OK=0
+for i in 1 2 3; do
+  CODE="$(curl -sSL -o "$TMPREL" -w "%{http_code}" "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || echo 000)"
+  if [ "$CODE" = "200" ]; then REL_OK=1; break; fi
+  echo "Tentativa $i falhou (HTTP $CODE), tentando de novo em 2s..." >&2
+  sleep 2
+done
+TAG=""; URL=""
+if [ "$REL_OK" = "1" ]; then
+  REL_JSON="$(cat "$TMPREL")"
+  TAG="$(echo "$REL_JSON" | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)"
+  URL="$(echo "$REL_JSON" | grep -oE 'https://[^"]*\.AppImage' | head -1)"
+fi
+rm -f "$TMPREL"
+if [ -z "${URL:-}" ] && command -v git >/dev/null 2>&1; then
+  echo "API do GitHub indisponível — tentando método alternativo (git)..." >&2
+  TAG="$(git ls-remote --tags --sort=-v:refname "https://github.com/$REPO.git" 2>/dev/null | grep -oE 'refs/tags/v[0-9][0-9.]*' | head -1 | cut -d/ -f3)"
+  if [ -n "${TAG:-}" ]; then
+    URL="https://github.com/$REPO/releases/download/$TAG/CraftLauncher-${TAG#v}.AppImage"
+  fi
+fi
+[ -n "${URL:-}" ] || { echo "❌ Falha ao localizar o AppImage na release (rede ou limite da API do GitHub). Tente de novo em alguns minutos ou baixe manual em: https://github.com/$REPO/releases/latest"; exit 1; }
 echo "📦 Última versão: ${TAG:-desconhecida}"
 
 INSTALLED="nenhuma"
@@ -78,3 +99,8 @@ echo ""
 echo "✅ Pronto! (versão ${TAG:-atual}) Para jogar rode no terminal: CraftLauncher"
 echo "   (ou abra 'CraftLauncher' no menu de aplicativos)"
 echo "   Primeiro launch de cada versão baixa ~200-500 MB do Minecraft."
+if ! ldconfig -p 2>/dev/null | grep -q libfuse.so.2; then
+  echo ""
+  echo "⚠️  Se o app não abrir (erro de FUSE), instale com: sudo apt install libfuse2"
+  echo "   Alternativa sem FUSE: baixe o .deb em https://github.com/$REPO/releases/latest"
+fi
