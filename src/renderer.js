@@ -577,9 +577,9 @@ const MOD_CATALOG = [
   { key: 'sodium', name: '⚡ Sodium', desc: 'Muito mais FPS. Essencial. (Forge usa Embeddium)', check: ['sodium', 'embeddium'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'sodium', quilt: 'sodium', neoforge: 'sodium', forge: 'embeddium' } },
   { key: 'lithium', name: '🧠 Lithium', desc: 'Otimiza física e ticks. (Forge usa Canary)', check: ['lithium', 'canary'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'lithium', quilt: 'lithium', neoforge: 'lithium', forge: 'canary' } },
   { key: 'ferrite', name: '💾 FerriteCore', desc: 'Usa bem menos RAM.', check: ['ferrite'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'ferrite-core', quilt: 'ferrite-core', forge: 'ferrite-core', neoforge: 'ferrite-core' } },
-  { key: 'modernfix', name: '🚀 ModernFix', desc: 'Boot mais rápido + FPS.', check: ['modernfix'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'modernfix', quilt: 'modernfix', forge: 'modernfix', neoforge: 'modernfix' } },
+  { key: 'modernfix', name: '🚀 ModernFix', desc: 'Boot mais rápido + FPS.', check: ['modernfix'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'modernfix', quilt: 'modernfix', forge: 'modernfix', neoforge: 'modernfix' }, noMc: ['26.2', '26.3'], noMcHint: 'Disponível até 1.21.1 — na 26.x use 💾 FerriteCore' },
   { key: 'entityculling', name: '👁️ Entity Culling', desc: 'Não renderiza o que você não vê.', check: ['entityculling'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'entityculling', quilt: 'entityculling', forge: 'entityculling', neoforge: 'entityculling' } },
-  { key: 'krypton', name: '🌐 Krypton', desc: 'Rede otimizada (Fabric/Quilt).', check: ['krypton'], loaders: ['fabric', 'quilt'], resolve: { fabric: 'krypton', quilt: 'krypton' } },
+  { key: 'krypton', name: '🌐 Krypton', desc: 'Rede otimizada (Fabric/Quilt).', check: ['krypton'], loaders: ['fabric', 'quilt'], resolve: { fabric: 'krypton', quilt: 'krypton' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2' },
   { key: 'alternate', name: '⚡ Alternate Current', desc: 'Redstone mais leve.', check: ['alternate'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'alternate-current', quilt: 'alternate-current', forge: 'alternate-current', neoforge: 'alternate-current' } },
   { key: 'dynamicfps', name: '💤 Dynamic FPS', desc: 'Economiza GPU com jogo minimizado.', check: ['dynamic'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'dynamic-fps', quilt: 'dynamic-fps', forge: 'dynamic-fps', neoforge: 'dynamic-fps' } },
   { cat: '🌅 GRÁFICOS' },
@@ -594,21 +594,21 @@ const MOD_CATALOG = [
   { cat: '🧰 UTILIDADES' },
   { key: 'appleskin', name: '🍎 AppleSkin', desc: 'Mostra fome/saturação.', check: ['appleskin'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'appleskin', quilt: 'appleskin', forge: 'appleskin', neoforge: 'appleskin' } },
   { key: 'jei', name: '📖 JEI', desc: 'Vê receitas de todos os itens.', check: ['jei'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'jei', quilt: 'jei', forge: 'jei', neoforge: 'jei' } },
-  { key: 'rei', name: '📚 REI', desc: 'Alternativa ao JEI.', check: ['roughly', 'rei'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'rei', quilt: 'rei', forge: 'rei', neoforge: 'rei' }, deps: ['cloth', 'architectury'] },
+  { key: 'rei', name: '📚 REI', desc: 'Alternativa ao JEI.', check: ['roughly', 'rei'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'rei', quilt: 'rei', forge: 'rei', neoforge: 'rei' }, deps: ['cloth', 'architectury'], noMc: ['26.3'], noMcHint: 'Disponível até 26.2 — ou use 📖 JEI' },
   { key: 'jade', name: '🔍 Jade', desc: 'Diz o bloco que você mira.', check: ['jade'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'jade', quilt: 'jade', forge: 'jade', neoforge: 'jade' } },
-  { key: 'wthit', name: '🎯 WTHIT', desc: 'Tooltip leve de blocos.', check: ['wthit', 'wthit-'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'wthit', quilt: 'wthit', forge: 'wthit', neoforge: 'wthit' } },
+  { key: 'wthit', name: '🎯 WTHIT', desc: 'Tooltip leve de blocos.', check: ['wthit', 'wthit-'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'wthit', quilt: 'wthit', forge: 'wthit', neoforge: 'wthit' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2 — ou use 🔍 Jade' },
   { key: 'journeymap', name: '🗺️ JourneyMap', desc: 'Minimapa + mapa tela cheia.', check: ['journeymap'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'journeymap', quilt: 'journeymap', forge: 'journeymap', neoforge: 'journeymap' } },
   { key: 'mousetweaks', name: '🖱️ Mouse Tweaks', desc: 'Arrastar itens com botão direito.', check: ['mousetweaks', 'mouse-tweaks'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'mouse-tweaks', quilt: 'mouse-tweaks', forge: 'mouse-tweaks', neoforge: 'mouse-tweaks' } },
-  { key: 'ipn', name: '🎒 Inventory Profiles', desc: 'Organiza inventário (R).', check: ['inventoryprofilesnext', 'inventory-profiles'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'inventory-profiles-next', quilt: 'inventory-profiles-next', forge: 'inventory-profiles-next', neoforge: 'inventory-profiles-next' } },
+  { key: 'ipn', name: '🎒 Inventory Profiles', desc: 'Organiza inventário (R).', check: ['inventoryprofilesnext', 'inventory-profiles'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'inventory-profiles-next', quilt: 'inventory-profiles-next', forge: 'inventory-profiles-next', neoforge: 'inventory-profiles-next' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2' },
   { key: 'shulkertooltip', name: '📦 Shulker Tooltip', desc: 'Vê dentro da shulker sem abrir.', check: ['shulkerboxtooltip', 'shulker-box'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'shulkerboxtooltip', quilt: 'shulkerboxtooltip', forge: 'shulkerboxtooltip', neoforge: 'shulkerboxtooltip' } },
-  { key: 'betterf3', name: '📊 BetterF3', desc: 'Tela F3 limpa e útil.', check: ['betterf3', 'better-f3'], loaders: ['fabric', 'forge', 'quilt'], resolve: { fabric: 'betterf3', quilt: 'betterf3', forge: 'betterf3' } },
-  { key: 'nochatreports', name: '💬 No Chat Reports', desc: 'Protege sua conta (sem report).', check: ['no-chat-reports', 'nochatreports'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'no-chat-reports', quilt: 'no-chat-reports', forge: 'no-chat-reports', neoforge: 'no-chat-reports' } },
+  { key: 'betterf3', name: '📊 BetterF3', desc: 'Tela F3 limpa e útil.', check: ['betterf3', 'better-f3'], loaders: ['fabric', 'forge', 'quilt'], resolve: { fabric: 'betterf3', quilt: 'betterf3', forge: 'betterf3' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2' },
+  { key: 'nochatreports', name: '💬 No Chat Reports', desc: 'Protege sua conta (sem report).', check: ['no-chat-reports', 'nochatreports'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'no-chat-reports', quilt: 'no-chat-reports', forge: 'no-chat-reports', neoforge: 'no-chat-reports' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2' },
   { key: 'modmenu', name: '📋 Mod Menu', desc: 'Lista os mods no menu (Fabric/Quilt).', check: ['modmenu'], loaders: ['fabric', 'quilt'], resolve: { fabric: 'modmenu', quilt: 'modmenu' } },
   { cat: '🏔️ MUNDO & CONTEÚDO' },
-  { key: 'terralith', name: '🏔️ Terralith', desc: 'Biomas novos incríveis.', check: ['terralith'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'terralith', quilt: 'terralith', forge: 'terralith', neoforge: 'terralith' } },
-  { key: 'bop', name: '🌳 Biomes O\u2019 Plenty', desc: 'Dezenas de biomas novos.', check: ['biomes-o-plenty', 'biomesoplenty'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'biomes-o-plenty', quilt: 'biomes-o-plenty', forge: 'biomes-o-plenty', neoforge: 'biomes-o-plenty' } },
+  { key: 'terralith', name: '🏔️ Terralith', desc: 'Biomas novos incríveis.', check: ['terralith'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'terralith', quilt: 'terralith', forge: 'terralith', neoforge: 'terralith' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2' },
+  { key: 'bop', name: '🌳 Biomes O\u2019 Plenty', desc: 'Dezenas de biomas novos.', check: ['biomes-o-plenty', 'biomesoplenty'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'biomes-o-plenty', quilt: 'biomes-o-plenty', forge: 'biomes-o-plenty', neoforge: 'biomes-o-plenty' }, noMc: ['1.20.1', '26.3'], noMcHint: 'Na 1.20.1 use 🏔️ Terralith' },
   { key: 'waystones', name: '🗿 Waystones', desc: 'Teleporte entre pedras.', check: ['waystones'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'waystones', quilt: 'waystones', forge: 'waystones', neoforge: 'waystones' }, deps: ['balm'] },
-  { key: 'supplementaries', name: '🏺 Supplementaries', desc: 'Móveis e utilidades.', check: ['supplementaries'], loaders: ['fabric', 'forge', 'neoforge'], resolve: { fabric: 'supplementaries', forge: 'supplementaries', neoforge: 'supplementaries' }, deps: ['puzzles'] },
+  { key: 'supplementaries', name: '🏺 Supplementaries', desc: 'Móveis e utilidades.', check: ['supplementaries'], loaders: ['fabric', 'forge', 'neoforge'], resolve: { fabric: 'supplementaries', forge: 'supplementaries', neoforge: 'supplementaries' }, deps: ['puzzles'], noMc: ['26.2', '26.3'], noMcHint: 'Disponível até 1.21.1' },
   { key: 'create', name: '⚙️ Create', desc: 'Engenharia e máquinas (Forge 1.20).', check: ['create-'], loaders: ['forge'], resolve: { forge: 'create' } },
   { key: 'farmersdelight', name: '🌾 Farmer\u2019s Delight', desc: 'Culinária nova (Forge 1.20).', check: ['farmersdelight', 'farmers-delight'], loaders: ['forge'], resolve: { forge: 'farmers-delight' } },
   { cat: '🎨 SKINS' },
@@ -617,7 +617,7 @@ const MOD_CATALOG = [
   { key: 'cloth', name: '🔧 Cloth Config', desc: 'Exigida por vários mods.', check: ['cloth-config'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'cloth-config', quilt: 'cloth-config', forge: 'cloth-config', neoforge: 'cloth-config' } },
   { key: 'architectury', name: '🏗️ Architectury', desc: 'Exigida por vários mods.', check: ['architectury'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'architectury-api', quilt: 'architectury-api', forge: 'architectury-api', neoforge: 'architectury-api' } },
   { key: 'balm', name: '🧪 Balm', desc: 'Exigida pelo Waystones.', check: ['balm'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'balm', quilt: 'balm', forge: 'balm', neoforge: 'balm' } },
-  { key: 'puzzles', name: '🧩 Puzzles Lib', desc: 'Exigida pelo Supplementaries.', check: ['puzzles-lib', 'puzzleslib'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'puzzles-lib', quilt: 'puzzles-lib', forge: 'puzzles-lib', neoforge: 'puzzles-lib' } }
+  { key: 'puzzles', name: '🧩 Puzzles Lib', desc: 'Exigida pelo Supplementaries.', check: ['puzzles-lib', 'puzzleslib'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'puzzles-lib', quilt: 'puzzles-lib', forge: 'puzzles-lib', neoforge: 'puzzles-lib' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2' }
 ];
 let installedMods = [];
 
@@ -657,13 +657,15 @@ function renderCatalog() {
         (categoryFilter !== 'all' && category !== categoryFilter) ||
         (search && !text.includes(search))) continue;
     const installed = entry.check.some((p) => installedMods.some((m) => m.toLowerCase().startsWith(p)));
+    const deadMc = (entry.noMc || []).includes($('version').value);
     const card = document.createElement('div');
-    card.className = 'mod-card' + (installed ? ' installed' : '');
+    card.className = 'mod-card' + (installed ? ' installed' : '') + (deadMc ? ' unavailable' : '');
     const tagLine = isShader ? 'shaderpack 🎨 (pasta shaderpacks)' : `para: <b>${entry.loaders.join(' • ')}</b>`;
-    card.innerHTML = `<h4>${entry.name}</h4><p>${entry.desc}</p><div class="tags">${tagLine}${installed ? ' <span class="ok">✓ INSTALADO</span>' : ''}</div>`;
+    card.innerHTML = `<h4>${entry.name}</h4><p>${entry.desc}</p><div class="tags">${tagLine}${installed ? ' <span class="ok">✓ INSTALADO</span>' : ''}${deadMc ? `<div class="unav-hint">🚫 Sem build p/ MC ${$('version').value}. ${entry.noMcHint || ''}</div>` : ''}</div>`;
     const btn = document.createElement('button');
-    btn.className = 'btn small' + (installed ? '' : ' primary');
-    btn.textContent = installed ? '✓ Instalado' : (supportsCur ? '⬇ Instalar' : `⬇ Instalar (${entry.loaders[0]})`);
+    btn.className = 'btn small' + (installed && !deadMc ? '' : ' primary');
+    btn.textContent = deadMc ? '🚫 Indisponível' : installed ? '✓ Instalado' : (supportsCur ? '⬇ Instalar' : `⬇ Instalar (${entry.loaders[0]})`);
+    btn.disabled = deadMc;
     btn.onclick = () => installCatalog(entry, btn);
     card.appendChild(btn);
     grid.appendChild(card);
@@ -676,6 +678,12 @@ async function installCatalog(entry, btn) {
   const isShader = (entry.dir || 'mods') !== 'mods';
   let cur = $('modloader').value || 'vanilla';
   const mc = $('version').value;
+  if ((entry.noMc || []).includes(mc)) {
+    const msg = `"${entry.name}" não tem build para MC ${mc}. ${entry.noMcHint || ''}`;
+    toast(msg, true);
+    log('Mods: ' + msg);
+    return;
+  }
   const mcNew = (() => { const m = String(mc).match(/^(\d+)\.(\d+)/); return m && (parseInt(m[1], 10) > 1 || (parseInt(m[1], 10) === 1 && parseInt(m[2], 10) >= 21)); })();
   if (!isShader && cur === 'forge' && mcNew && entry.loaders.includes('neoforge')) {
     // Forge não existe para MC novo (só até 1.20.1): migra para NeoForge sozinho

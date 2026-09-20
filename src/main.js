@@ -643,18 +643,27 @@ ipcMain.handle('mods:delete', async (e, name) => {
 
 // Modrinth: instala latest compatível, com cadeia de fallbacks e dicas de disponibilidade.
 // args: { slug, fallbacks?: string[], loader?, mcVersion? }
-async function modAvailability(slug) {
+async function modAvailability(slug, forLoader) {
   try {
-    const versions = await fetchJSON(`https://api.modrinth.com/v2/project/${slug}/version`, {
+    const versions = await fetchJSON(`https://api.modrinth.com/v2/project/${slug}/version?limit=200`, {
       headers: { 'User-Agent': 'CraftLauncher/2.0' }
     });
     const games = [...new Set(versions.flatMap((v) => v.game_versions || []))];
     const loaders = [...new Set(versions.flatMap((v) => v.loaders || []))];
     // ordena versões MC de forma simples (mais novas primeiro por prefixo)
     games.sort().reverse();
-    return { loaders, games: games.slice(0, 12), total: versions.length };
+    // versões que têm build para ESTE loader (quilt aceita fabric)
+    let loaderGames = [];
+    if (forLoader) {
+      const lds = forLoader === 'quilt' ? ['quilt', 'fabric'] : [forLoader];
+      loaderGames = [...new Set(versions
+        .filter((v) => (v.loaders || []).some((l) => lds.includes(l)))
+        .flatMap((v) => v.game_versions || []))];
+      loaderGames.sort().reverse();
+    }
+    return { loaders, games: games.slice(0, 12), loaderGames: loaderGames.slice(0, 8), total: versions.length };
   } catch {
-    return { loaders: [], games: [], total: 0 };
+    return { loaders: [], games: [], loaderGames: [], total: 0 };
   }
 }
 
@@ -672,10 +681,12 @@ async function installModrinthSlug(slug, fallbacks, ctx) {
       const url = `https://api.modrinth.com/v2/project/${c}/version?${params.join('&')}`;
       const versions = await fetchJSON(url, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
       if (!versions.length) {
-        const av = await modAvailability(c);
-        const hint = av.total
-          ? ` Disponível para: ${av.games.slice(0, 6).join(', ') || '?'} (${av.loaders.join('/') || '?'})`
-          : ' (projeto não encontrado)';
+        const av = await modAvailability(c, ld);
+        const hint = !av.total
+          ? ' (projeto não encontrado)'
+          : av.loaderGames.length
+            ? ` Existe para ${ld} em: ${av.loaderGames.slice(0, 6).join(', ')}.`
+            : ` Não há build para ${ld} (só: ${av.loaders.join('/') || '?'})`;
         throw new Error(`sem build de ${c} para MC ${mc} (${ld}).${hint}`);
       }
       // prefere build marcado com o loader atual; senão o primeiro (ex: fabric p/ quilt)

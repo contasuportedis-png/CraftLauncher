@@ -178,6 +178,9 @@ code { background: #0b0f13; padding: 2px 7px; border-radius: 6px; border: 1px so
 .mod-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; transition: .15s; }
 .mod-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 .mod-card.installed { border-color: var(--accent); }
+.mod-card.unavailable { opacity: .55; }
+.mod-card.unavailable:hover { border-color: var(--border); transform: none; }
+.mod-card .unav-hint { margin-top: 4px; font-size: 11px; font-weight: 700; color: var(--warn, #f0b429); }
 .mod-card h4 { margin: 0; font-size: 13.5px; }
 .mod-card p { margin: 0; color: var(--muted); font-size: 12px; min-height: 32px; }
 .mod-card .tags { font-size: 10.5px; color: var(--muted); letter-spacing: .4px; }
