@@ -92,6 +92,7 @@ async function loadAll() {
   $('javaPath').value = S.javaPath || '';
   $('gameDir').value = S.gameDir || '';
   $('skinModel').value = S.skinModel || 'classic';
+  $('autoTune').checked = S.autoTune !== false;
   $('fRelease').checked = true;
   $('fSnapshot').checked = !!S.showSnapshots;
   $('fOld').checked = !!S.showOld;
@@ -110,6 +111,7 @@ async function loadAll() {
 async function refreshHeader() {
   try {
     const info = await window.api.systemInfo();
+    sysMem = { total: info.totalMemGB, free: info.freeMemGB };
     $('ramPill').textContent = `${info.freeMemGB}/${info.totalMemGB} GB livres`;
     $('uuidText').textContent = info.uuid || '—';
     $('metaSize').textContent = info.gameDirSize || '—';
@@ -213,11 +215,13 @@ function syncMlPills() {
   $('loaderHint').textContent = hints[ml] || '';
 }
 document.querySelectorAll('.ml-pills button').forEach((b) => {
-  b.onclick = async () => { $('modloader').value = b.dataset.ml; syncMlPills(); refreshHero(); renderCatalog(); await collectAndSave(); loadLoaders(); };
+  b.onclick = async () => { $('modloader').value = b.dataset.ml; syncMlPills(); refreshHero(); renderCatalog(); await collectAndSave(); if ($('autoTune').checked) autoTune('auto'); else loadLoaders(); };
 });
 document.querySelectorAll('.use-ml').forEach((b) => {
   b.onclick = async () => { $('modloader').value = b.dataset.use; syncMlPills(); refreshHero(); renderCatalog(); await collectAndSave(); toast(b.dataset.use.toUpperCase() + ' selecionado'); goTab('inicio'); };
 });
+$('btnAutoTune').onclick = () => autoTune('manual');
+$('autoTune').onchange = collectAndSave;
 
 async function loadLoaders() {
   const mc = $('version').value || S.version || '1.20.1';
@@ -466,7 +470,8 @@ async function collectAndSave() {
     serverPort: $('serverPort').value.trim() || '25565',
     demo: $('demo').checked,
     closeAction: $('closeAction').value,
-    skinModel: $('skinModel').value
+    skinModel: $('skinModel').value,
+    autoTune: $('autoTune').checked
   };
   if (obj.ramMin > obj.ramMax) [obj.ramMin, obj.ramMax] = [obj.ramMax, obj.ramMin];
   S = { ...S, ...obj };
@@ -510,7 +515,7 @@ $('username').oninput = refreshHero;
 $('ramMin').oninput = () => { $('ramMinVal').textContent = $('ramMin').value + 'G'; refreshHero(); };
 $('ramMax').oninput = () => { $('ramMaxVal').textContent = $('ramMax').value + 'G'; refreshHero(); };
 $('width').oninput = refreshHero; $('height').oninput = refreshHero; $('fullscreen').onchange = refreshHero;
-$('version').onchange = async () => { refreshHero(); refreshJavaNeed(); await collectAndSave(); loadLoaders(); loadVersionGrid(); };
+$('version').onchange = async () => { refreshHero(); refreshJavaNeed(); await collectAndSave(); loadVersionGrid(); if ($('autoTune').checked) autoTune('auto'); else loadLoaders(); };
 $('btnReloadVersions').onclick = async () => { await window.api.allVersions({ force: true }); await loadVersionSelect(); loadVersionGrid(true); toast('Lista de versões atualizada'); };
 $('verSearch').oninput = () => loadVersionGrid();
 $('fRelease').onchange = () => loadVersionGrid(true);
@@ -621,6 +626,67 @@ const MOD_CATALOG = [
   { key: 'puzzles', name: '🧩 Puzzles Lib', desc: 'Exigida pelo Supplementaries.', check: ['puzzles-lib', 'puzzleslib'], loaders: ['fabric', 'forge', 'neoforge', 'quilt'], resolve: { fabric: 'puzzles-lib', quilt: 'puzzles-lib', forge: 'puzzles-lib', neoforge: 'puzzles-lib' }, noMc: ['26.3'], noMcHint: 'Disponível até 26.2' }
 ];
 let installedMods = [];
+let sysMem = null; // {total, free} GB — preenchido em refreshHeader
+
+function isNewMc(mc) {
+  const m = String(mc || '').match(/^(\d+)\.(\d+)/);
+  return !!m && (parseInt(m[1], 10) > 1 || (parseInt(m[1], 10) === 1 && parseInt(m[2], 10) >= 21));
+}
+function pickLatestStable(sel) {
+  const opts = [...sel.options].map((o) => o.value).filter(Boolean);
+  return opts.find((v) => !/beta|alpha/i.test(v)) || opts[0] || '';
+}
+// Ajusta tudo sozinho conforme versão/loader: loader compatível, versão do
+// loader, RAM dentro do limite do PC e aviso de mods incompatíveis.
+async function autoTune(mode) {
+  const manual = mode === 'manual';
+  const mc = $('version').value;
+  let ml = $('modloader').value || 'vanilla';
+  const notes = [];
+  if (ml === 'forge' && isNewMc(mc)) {
+    ml = 'neoforge';
+    $('modloader').value = 'neoforge';
+    syncMlPills();
+    notes.push('Forge não existe aqui → NeoForge ⚡');
+  }
+  await loadLoaders();
+  const map = { fabric: 'fabVer', quilt: 'quiltVer', forge: 'forgeVer', neoforge: 'neoVer' };
+  if (map[ml]) {
+    const v = pickLatestStable($(map[ml]));
+    if (v) { $(map[ml]).value = v; notes.push('loader ' + v); }
+    $('modloaderVersion').value = '';
+  }
+  if (!sysMem) {
+    try { const i = await window.api.systemInfo(); sysMem = { total: i.totalMemGB, free: i.freeMemGB }; } catch {}
+  }
+  const cap = sysMem ? Math.max(1, Math.min(Math.floor(sysMem.total * 0.6), Math.floor(sysMem.free * 0.8))) : 8;
+  let rMin = parseInt($('ramMin').value, 10) || 2;
+  let rMax = parseInt($('ramMax').value, 10) || 4;
+  const modded = ml !== 'vanilla';
+  if (manual) {
+    rMin = modded ? 3 : 2;
+    rMax = modded ? Math.min(6, cap) : Math.min(4, cap);
+    if (rMin > rMax) rMin = Math.max(1, rMax - 1);
+    notes.push(`RAM ${rMin}–${rMax}G`);
+  } else if (rMax > cap) {
+    rMax = cap;
+    if (rMin > rMax) rMin = rMax;
+    notes.push(`RAM ajustada p/ ${rMax}G (limite do PC)`);
+  }
+  $('ramMin').value = rMin; $('ramMax').value = rMax;
+  $('ramMinVal').textContent = rMin + 'G'; $('ramMaxVal').textContent = rMax + 'G';
+  await collectAndSave();
+  refreshHero(); refreshJavaNeed(); renderCatalog();
+  try {
+    const a = await window.api.modsAudit({ mcVersion: mc, loader: ml });
+    if (ml === 'vanilla' && a.total) notes.push(`${a.total} mod(s) ignorados no Vanilla`);
+    else if (a.bad.length) notes.push(`⚠️ ${a.bad.length} mod(s) de outro loader/versão`);
+  } catch {}
+  const msg = notes.length ? 'Auto: ' + notes.join(' • ') : 'Auto: tudo certo ✓';
+  toast(msg, false);
+  log(msg);
+  await loadMods();
+}
 
 function renderCatalog() {
   const box = $('modCatalog');
@@ -763,6 +829,66 @@ $('btnSkinMod2').onclick = activateSkin;
 $('skinModel').onchange = collectAndSave;
 
 $('btnRefreshMods').onclick = loadMods;
+$('btnExportPack').onclick = async (e) => {
+  const btn = e.target.closest('button');
+  btn.disabled = true;
+  try {
+    const r = await window.api.exportPack();
+    toast(r.ok ? `Exportado: ${r.count} mods ✅` : 'Falha: ' + r.error, !r.ok);
+    if (r.ok) log('Exportado para ' + r.file);
+  } finally { btn.disabled = false; }
+};
+$('btnLinkInstall').onclick = async () => {
+  const input = $('linkInput').value.trim();
+  if (!input) { toast('Cole um link ou nome primeiro', true); return; }
+  goTab('modloaders');
+  log(`Instalando por link: ${input} (MC ${$('version').value}/${$('modloader').value})…`);
+  const r = await window.api.linkInstall({ input });
+  toast(r.ok ? `Instalado: ${r.file || r.name} ✅` : 'Falha: ' + r.error, !r.ok);
+  await loadMods();
+  await loadPacks();
+};
+$('btnSearchAll').onclick = async () => {
+  const q = $('modSearchAll').value.trim();
+  if (!q) { toast('Digite algo para buscar', true); return; }
+  const box = $('searchResults');
+  box.innerHTML = '<div class="muted">Buscando no Modrinth...</div>';
+  try {
+    const res = await window.api.modsSearch({ query: q, mcVersion: $('version').value, loader: $('modloader').value });
+    const hits = res.hits || [];
+    box.innerHTML = `<div class="muted">Resultados para <b>${res.mc}/${res.loader}</b> — ✓ tem build, ✖ não tem.</div>`;
+    if (!hits.length) box.innerHTML += '<div class="muted">Nada encontrado.</div>';
+    const typeName = { mod: '🧩 mod', shader: '🌅 shader', resourcepack: '🎨 textura' };
+    hits.slice(0, 10).forEach((h) => {
+      const d = document.createElement('div');
+      d.className = 'mod-row' + (h.compatible ? '' : ' disabled');
+      const badge = h.compatible
+        ? `<span class="ok">✓ ${res.mc}</span>`
+        : `<span style="color:var(--danger);font-size:11px;font-weight:800">✖ ${res.mc}</span>`;
+      d.innerHTML = `<span>${(typeName[h.type] || h.type).split(' ')[0]}</span><span class="name" title="${(h.description || '').slice(0, 200)}"><b>${h.title}</b> <span class="muted">· ${typeName[h.type] || h.type}</span> ${badge}<br><span class="muted">${(h.description || '').slice(0, 90)}</span></span>`;
+      const btn = document.createElement('button');
+      if (h.compatible) {
+        btn.className = 'btn small primary'; btn.textContent = '⬇ Instalar';
+      } else {
+        btn.className = 'btn small'; btn.textContent = 'Sem build'; btn.disabled = true;
+        btn.title = `Sem build para MC ${res.mc} (${res.loader}) — troque a versão ou o loader`;
+      }
+      btn.onclick = async () => {
+        btn.disabled = true;
+        goTab('modloaders');
+        const r = await window.api.linkInstall({ input: h.slug });
+        toast(r.ok ? `Instalado: ${r.file || r.name} ✅` : 'Falha: ' + r.error, !r.ok);
+        btn.disabled = false;
+        await loadMods();
+        await loadPacks();
+      };
+      d.appendChild(btn);
+      box.appendChild(d);
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="muted">Erro: ' + e.message + '</div>';
+  }
+};
 async function loadPacks() {
   try {
     const list = await window.api.packsInstalled();

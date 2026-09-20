@@ -97,6 +97,7 @@ function createWindow() {
     minWidth: 1020,
     minHeight: 680,
     title: 'CraftLauncher 2 — Minecraft Java (offline)',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     autoHideMenuBar: true,
     backgroundColor: '#0b0f14',
     webPreferences: {
@@ -671,6 +672,30 @@ ipcMain.handle('mods:delete', async (e, name) => {
   return { ok: true };
 });
 
+// heurística reaproveitável: jars de outro loader/versão no perfil
+function auditModsDir(root, ml, mc) {
+  let modFiles = [];
+  try { modFiles = fs.readdirSync(path.join(root, 'mods')).filter((f) => f.endsWith('.jar')); } catch { return { total: 0, bad: [] }; }
+  const loaders = ['fabric', 'forge', 'neoforge', 'quilt'];
+  const bad = modFiles.filter((f) => {
+    const n = f.toLowerCase();
+    const tagLoader = loaders.find((l) => n.includes('-' + l + '-') || n.includes('-' + l + '.') || n.includes(l + '-fabric') || n.includes(l + '-forge'));
+    if (tagLoader && tagLoader !== ml && !(ml === 'quilt' && tagLoader === 'fabric')) return true;
+    const mcv = n.match(/mc\s?(\d+\.\d+(\.\d+)?)|(\d+\.\d+(\.\d+)?)\.jar$|[-+](\d+\.\d+(\.\d+)?)([-+.])/);
+    const hint = mcv ? (mcv[1] || mcv[3] || mcv[5]) : null;
+    if (hint && mc && !mc.startsWith(hint) && !hint.startsWith(mc)) return true;
+    return false;
+  });
+  return { total: modFiles.length, bad };
+}
+ipcMain.handle('mods:audit', async (e, { mcVersion, loader } = {}) => {
+  const s = await getStore();
+  const mc = mcVersion || s.get('version');
+  const ml = (loader || s.get('modloader') || 'vanilla').toLowerCase();
+  const root = activeGameDir({ version: mc, modloader: ml, gameDir: s.get('gameDir') });
+  return auditModsDir(root, ml, mc);
+});
+
 // ---------- modpacks (.mrpack do Modrinth) ----------
 const PACK_LOADER_KEYS = { fabric: 'fabric-loader', quilt: 'quilt-loader', forge: 'forge', neoforge: 'neoforge' };
 function packLoaderFilter(ld) {
@@ -793,33 +818,8 @@ ipcMain.handle('modpacks:install', async (e, { slug, versionId, mcVersion, loade
   let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
   if (ld === 'vanilla') ld = 'fabric';
   try {
-    slug = cleanPackSlug(slug);
-    if (!slug) throw new Error('informe o nome ou link do modpack');
-    let v;
-    if (versionId) {
-      v = await fetchJSON(`https://api.modrinth.com/v2/version/${encodeURIComponent(versionId)}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
-    } else {
-      const params = new URLSearchParams({
-        game_versions: JSON.stringify([mc]),
-        loaders: JSON.stringify(packLoaderFilter(ld)),
-      });
-      const list = await fetchJSON(`https://api.modrinth.com/v2/project/${encodeURIComponent(slug)}/version?${params}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
-      const packs = list.filter((x) => ((x.files.find((f) => f.primary) || x.files[0]) || {}).filename?.endsWith('.mrpack'));
-      if (!packs.length) {
-        const av = await modAvailability(slug, null);
-        throw new Error(`sem versão do pack para MC ${mc} (${ld}).${av.total ? ' Versões existentes: ' + av.games.slice(0, 6).join(', ') : ' Pack não encontrado.'}`);
-      }
-      v = packs[0];
-    }
-    const file = v.files.find((f) => f.primary) || v.files[0];
-    if (!file || !file.filename.endsWith('.mrpack')) throw new Error('versão sem arquivo .mrpack');
-    sendLog(`Baixando modpack ${v.name || v.version_number} (${(file.size / 1048576).toFixed(1)} MB)...`);
-    const tmp = path.join(app.getPath('temp'), file.filename);
-    await downloadFileWithRetry(file.url, tmp);
-    const res = await installMrpackFile(tmp, { mc, ld, gameDir: s.get('gameDir') });
-    try { fs.rmSync(tmp, { force: true }); } catch {}
-    registerInstalledPack(s, { slug, name: v.name || v.version_number, version: v.version_number, mc, loader: ld, ...res });
-    return { ok: true, name: v.name || v.version_number, ...res };
+    const res = await installModpackCore({ slug, versionId, mc, ld, s });
+    return { ok: true, ...res };
   } catch (err) {
     sendLog('Falha modpack: ' + err.message);
     return { ok: false, error: err.message };
@@ -845,6 +845,157 @@ ipcMain.handle('modpacks:importFile', async () => {
   }
 });
 ipcMain.handle('modpacks:installed', async () => (await getStore()).get('installedPacks') || []);
+
+// ---------- instalar por link + busca + exportação ----------
+function parseModrinthInput(input) {
+  const t = String(input || '').trim();
+  if (!t) return null;
+  const m = t.match(/modrinth\.com\/(mod|modpack|resourcepack|shader|datapack)\/([A-Za-z0-9-_]+)/i);
+  if (m) return { slug: m[2], hint: m[1].toLowerCase() };
+  const slug = t.split('?')[0].split('/').filter(Boolean).pop();
+  return slug ? { slug, hint: null } : null;
+}
+ipcMain.handle('mods:resolveLink', async (e, { input } = {}) => {
+  const p = parseModrinthInput(input);
+  if (!p) throw new Error('link ou nome inválido (use link do Modrinth ou nome do projeto)');
+  const proj = await fetchJSON(`https://api.modrinth.com/v2/project/${encodeURIComponent(p.slug)}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+  return { slug: proj.slug, title: proj.title, type: proj.project_type, description: (proj.description || '').slice(0, 140), loaders: proj.loaders };
+});
+async function installModpackCore({ slug, versionId, mc, ld, s }) {
+  slug = cleanPackSlug(slug);
+  if (!slug) throw new Error('informe o nome ou link do modpack');
+  let v;
+  if (versionId) {
+    v = await fetchJSON(`https://api.modrinth.com/v2/version/${encodeURIComponent(versionId)}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+  } else {
+    const params = new URLSearchParams({
+      game_versions: JSON.stringify([mc]),
+      loaders: JSON.stringify(packLoaderFilter(ld)),
+    });
+    const list = await fetchJSON(`https://api.modrinth.com/v2/project/${encodeURIComponent(slug)}/version?${params}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+    const packs = list.filter((x) => ((x.files.find((f) => f.primary) || x.files[0]) || {}).filename?.endsWith('.mrpack'));
+    if (!packs.length) {
+      const av = await modAvailability(slug, null);
+      throw new Error(`sem versão do pack para MC ${mc} (${ld}).${av.total ? ' Versões existentes: ' + av.games.slice(0, 6).join(', ') : ' Pack não encontrado.'}`);
+    }
+    v = packs[0];
+  }
+  const file = v.files.find((f) => f.primary) || v.files[0];
+  if (!file || !file.filename.endsWith('.mrpack')) throw new Error('versão sem arquivo .mrpack');
+  sendLog(`Baixando modpack ${v.name || v.version_number} (${(file.size / 1048576).toFixed(1)} MB)...`);
+  const tmp = path.join(app.getPath('temp'), file.filename);
+  await downloadFileWithRetry(file.url, tmp);
+  const res = await installMrpackFile(tmp, { mc, ld, gameDir: s.get('gameDir') });
+  try { fs.rmSync(tmp, { force: true }); } catch {}
+  registerInstalledPack(s, { slug, name: v.name || v.version_number, version: v.version_number, mc, loader: ld, ...res });
+  return { name: v.name || v.version_number, ...res };
+}
+ipcMain.handle('mods:installFromLink', async (e, { input, mcVersion, loader } = {}) => {
+  const s = await getStore();
+  const mc = mcVersion || s.get('version');
+  let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
+  if (ld === 'vanilla') ld = 'fabric';
+  try {
+    const p = parseModrinthInput(input);
+    if (!p) throw new Error('link ou nome inválido (use link do Modrinth ou nome do projeto)');
+    const proj = await fetchJSON(`https://api.modrinth.com/v2/project/${encodeURIComponent(p.slug)}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+    const type = proj.project_type;
+    sendLog(`Link resolvido: ${proj.title} (${type})`);
+    if (type === 'modpack') {
+      const res = await installModpackCore({ slug: proj.slug, mc, ld, s });
+      await loadModsRefresh();
+      return { ok: true, kind: 'modpack', ...res };
+    }
+    const dir = type === 'mod' ? 'mods' : type === 'shader' ? 'shaderpacks' : type === 'resourcepack' ? 'resourcepacks' : null;
+    if (!dir) throw new Error(`tipo '${type}' não instalável (datapacks vão dentro da pasta do mundo)`);
+    if (dir === 'mods' && ld === 'forge' && isNewMcForForge(mc)) {
+      throw new Error(`Forge não existe para MC ${mc} — troque o modloader para NeoForge e instale de novo.`);
+    }
+    const r = await installModrinthSlug(proj.slug, [], { mc, ld, dir, depth: 0, visited: new Set(), gameDir: s.get('gameDir') });
+    await loadModsRefresh();
+    return r.ok ? { ok: true, kind: type, ...r } : { ok: false, error: r.error };
+  } catch (err) {
+    sendLog('Falha link: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+});
+async function loadModsRefresh() { /* renderer recarrega via loadMods() após a chamada */ }
+ipcMain.handle('mods:search', async (e, { query, mcVersion, loader } = {}) => {
+  if (!query || !query.trim()) return [];
+  const s = await getStore();
+  const mc = mcVersion || s.get('version');
+  let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
+  if (ld === 'vanilla') ld = 'fabric';
+  // quilt aceita builds fabric: compatível se qualquer um dos dois existir
+  const lds = ld === 'quilt' ? ['quilt', 'fabric'] : [ld];
+  const params = new URLSearchParams({ query: query.trim(), limit: '10' });
+  params.set('facets', JSON.stringify([['project_type:mod', 'project_type:shader', 'project_type:resourcepack']]));
+  const data = await fetchJSON(`https://api.modrinth.com/v2/search?${params}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+  const hits = (data.hits || []).slice(0, 10);
+  // compatibilidade exata por resultado (MC + loader), em paralelo
+  const checked = await Promise.all(hits.map(async (h) => {
+    const base = {
+      slug: h.slug, title: h.title, type: h.project_type,
+      description: (h.description || '').slice(0, 120), downloads: h.downloads,
+      compatible: false, builds: 0
+    };
+    try {
+      const qp = new URLSearchParams({
+        game_versions: JSON.stringify([mc]),
+        loaders: JSON.stringify(h.project_type === 'mod' ? lds : []),
+      });
+      // shaders/texturas não têm loader: só importa a versão do jogo
+      const q = h.project_type === 'mod'
+        ? `https://api.modrinth.com/v2/project/${h.slug}/version?${qp}`
+        : `https://api.modrinth.com/v2/project/${h.slug}/version?game_versions=${encodeURIComponent(JSON.stringify([mc]))}`;
+      const vers = await fetchJSON(q, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+      const good = (vers || []).filter((v) => {
+        if (!(v.game_versions || []).includes(mc)) return false;
+        if (h.project_type !== 'mod') return true;
+        return (v.loaders || []).some((l) => lds.includes(l));
+      });
+      base.compatible = good.length > 0;
+      base.builds = good.length;
+    } catch { /* sem rede/dados: marca incompatível */ }
+    return base;
+  }));
+  // compatíveis primeiro
+  checked.sort((a, b) => (b.compatible - a.compatible) || ((b.downloads || 0) - (a.downloads || 0)));
+  return { mc, loader: ld, hits: checked };
+});
+ipcMain.handle('mods:exportPack', async () => {
+  const s = await getStore();
+  const mc = s.get('version');
+  const ld = (s.get('modloader') || 'vanilla').toLowerCase();
+  const root = activeGameDir(s.store);
+  const modsDir = path.join(root, 'mods');
+  let jars = [];
+  try { jars = fs.readdirSync(modsDir).filter((f) => f.endsWith('.jar')); } catch {}
+  if (!jars.length) return { ok: false, error: 'pasta mods vazia — nada para exportar' };
+  const r = await dialog.showSaveDialog(mainWindow, {
+    title: 'Exportar meus mods (.mrpack)',
+    defaultPath: `meus-mods-${mc}-${ld}.mrpack`,
+    filters: [{ name: 'Modrinth pack', extensions: ['mrpack'] }]
+  });
+  if (r.canceled || !r.filePath) return { ok: false, error: 'cancelado' };
+  try {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip();
+    for (const j of jars) zip.addLocalFile(path.join(modsDir, j), 'overrides/mods');
+    const loaderKey = PACK_LOADER_KEYS[ld] || 'fabric-loader';
+    zip.addFile('modrinth.index.json', Buffer.from(JSON.stringify({
+      formatVersion: 1, game: 'minecraft',
+      versionId: 'export-' + Date.now(), name: `Meus mods ${mc}/${ld}`,
+      files: [], dependencies: { minecraft: mc, [loaderKey]: 'any' }
+    }, null, 2)));
+    zip.writeZip(r.filePath);
+    sendLog(`Exportado: ${jars.length} mods → ${path.basename(r.filePath)} (importável na aba Mods)`);
+    return { ok: true, file: r.filePath, count: jars.length };
+  } catch (err) {
+    sendLog('Falha exportação: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+});
 
 // Modrinth: instala latest compatível, com cadeia de fallbacks e dicas de disponibilidade.
 // args: { slug, fallbacks?: string[], loader?, mcVersion? }
@@ -1485,22 +1636,11 @@ ipcMain.handle('game:launch', async (e, opts = {}) => {
   try {
     const ml = (settings.modloader || 'vanilla').toLowerCase();
     const mc = settings.version;
-    const modFiles = fs.readdirSync(path.join(root, 'mods')).filter((f) => f.endsWith('.jar'));
-    if (ml === 'vanilla' && modFiles.length) {
-      sendLog(`AVISO: ${modFiles.length} mod(s) na pasta mas loader é Vanilla — não vão carregar. Troque para Fabric.`);
-    } else if (modFiles.length) {
-      sendLog(`Mods ativos (${modFiles.length}): ` + modFiles.slice(0, 8).join(', ') + (modFiles.length > 8 ? '…' : ''));
-      // heurística: jar marcado p/ outro loader ou outra versão do MC
-      const loaders = ['fabric', 'forge', 'neoforge', 'quilt'];
-      const bad = modFiles.filter((f) => {
-        const n = f.toLowerCase();
-        const tagLoader = loaders.find((l) => n.includes('-' + l + '-') || n.includes('-' + l + '.') || n.includes(l + '-fabric') || n.includes(l + '-forge'));
-        if (tagLoader && tagLoader !== ml && !(ml === 'quilt' && tagLoader === 'fabric')) return true;
-        const mcv = n.match(/mc\s?(\d+\.\d+(\.\d+)?)|(\d+\.\d+(\.\d+)?)\.jar$|[-+](\d+\.\d+(\.\d+)?)([-+.])/);
-        const hint = mcv ? (mcv[1] || mcv[3] || mcv[5]) : null;
-        if (hint && mc && !mc.startsWith(hint) && !hint.startsWith(mc)) return true;
-        return false;
-      });
+    const { total, bad } = auditModsDir(root, ml, mc);
+    if (ml === 'vanilla' && total) {
+      sendLog(`AVISO: ${total} mod(s) na pasta mas loader é Vanilla — não vão carregar. Troque para Fabric.`);
+    } else if (total) {
+      sendLog(`Mods ativos (${total}): ` + fs.readdirSync(path.join(root, 'mods')).filter((f) => f.endsWith('.jar')).slice(0, 8).join(', ') + (total > 8 ? '…' : ''));
       if (bad.length) {
         sendLog(`⚠️ ${bad.length} mod(s) parecem de OUTRO loader/versão e podem crashar: ` + bad.slice(0, 6).join(', ') + (bad.length > 6 ? '…' : ''));
         sendLog(`Dica: jogando ${mc} (${ml}). Desative-os na aba Mods ou baixe as builds certas no catálogo.`);

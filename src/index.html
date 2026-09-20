@@ -7,16 +7,14 @@
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body data-theme="creeper">
-<div class="bg"><div class="bg-grid"></div><div class="bg-glow g1"></div><div class="bg-glow g2"></div>
-  <div class="float-cube f1"></div><div class="float-cube f2"></div><div class="float-cube f3"></div><div class="float-cube f4"></div>
-</div>
+<div class="bg"></div>
 
 <header class="topbar">
   <div class="brand-block">
     <div class="cube-logo" title="CraftLauncher"><span class="cube-grass"></span><span class="cube-dirt"></span></div>
     <div>
-        <h1>CraftLauncher <span class="ver-badge">2.2.2</span></h1>
-      <p>Java Edition • offline • <span class="hl">NeoForge</span> ready</p>
+        <h1>CraftLauncher</h1>
+      <p>Java Edition • offline</p>
     </div>
   </div>
   <div class="topbar-center">
@@ -75,17 +73,21 @@
       </label>
       <label class="lbl">MODLOADER
         <div class="ml-pills">
-          <button data-ml="vanilla" class="active" title="Sem mods">⬛ Vanilla</button>
-          <button data-ml="fabric" title="Leve e moderno">🧵 Fabric</button>
-          <button data-ml="forge" title="Clássico, muitos mods">🔨 Forge</button>
-          <button data-ml="neoforge" title="Sucessor do Forge (1.20.5+)">⚡ NeoForge</button>
-          <button data-ml="quilt" title="Fork do Fabric">🪡 Quilt</button>
+          <button data-ml="vanilla" class="active" title="Sem mods">Vanilla</button>
+          <button data-ml="fabric" title="Leve e moderno">Fabric</button>
+          <button data-ml="forge" title="Clássico, muitos mods">Forge</button>
+          <button data-ml="neoforge" title="Sucessor do Forge (1.20.5+)">NeoForge</button>
+          <button data-ml="quilt" title="Fork do Fabric">Quilt</button>
         </div>
       </label>
       <select id="modloader" style="display:none"><option value="vanilla">vanilla</option><option value="fabric">fabric</option><option value="forge">forge</option><option value="neoforge">neoforge</option><option value="quilt">quilt</option></select>
       <label class="lbl">VERSÃO DO LOADER <span class="micro-inline" id="loaderHint">auto = mais recente</span>
         <select id="modloaderVersion"><option value="">auto (recomendado)</option></select>
       </label>
+      <div class="row">
+        <button id="btnAutoTune" class="btn small primary grow" title="Ajusta loader, RAM e avisa de mods incompatíveis">⚡ Configurar sozinho</button>
+      </div>
+      <label class="check" style="margin-top:8px"><input type="checkbox" id="autoTune" checked /> auto ao trocar versão/loader</label>
       <div class="ram-block">
         <label class="lbl">RAM MÍNIMA — <span id="ramMinVal">2G</span><input id="ramMin" type="range" min="1" max="16" step="1" value="2" /></label>
         <label class="lbl">RAM MÁXIMA — <span id="ramMaxVal">4G</span><input id="ramMax" type="range" min="1" max="16" step="1" value="4" /></label>
@@ -95,11 +97,11 @@
 
   <main class="content">
     <nav class="tabs">
-      <button data-tab="inicio" class="active">▶ Jogar</button>
-      <button data-tab="mods">🧩 Mods</button>
-      <button data-tab="skins">🎨 Skins</button>
-      <button data-tab="config">⚙️ Configurações</button>
-      <button data-tab="ajuda">❓ Ajuda</button>
+      <button data-tab="inicio" class="active">Jogar</button>
+      <button data-tab="mods">Mods</button>
+      <button data-tab="skins">Skins</button>
+      <button data-tab="config">Configurações</button>
+      <button data-tab="ajuda">Ajuda</button>
     </nav>
 
     <section id="tab-inicio" class="tab active">
@@ -211,6 +213,19 @@
         <button id="btnResourcepacks" class="btn small">🎨 resourcepacks</button>
         <button id="btnShaders" class="btn small">🌅 shaderpacks</button>
         <button id="btnScreenshots" class="btn small">📸 screenshots</button>
+        <button id="btnExportPack" class="btn small ghost" title="Gera um .mrpack com seus mods atuais">📦 Exportar</button>
+      </div>
+      <div class="card" style="margin-bottom:10px">
+        <div class="row wrap">
+          <input id="linkInput" class="grow" placeholder="Colar link do Modrinth (mod, shader, pack…) ou nome" />
+          <button id="btnLinkInstall" class="btn small primary">⬇ Instalar link</button>
+        </div>
+        <div class="row wrap" style="margin-top:8px">
+          <input id="modSearchAll" class="grow" placeholder="Buscar em todo o Modrinth…" />
+          <button id="btnSearchAll" class="btn small">🔎 Buscar</button>
+        </div>
+        <div id="searchResults" class="mods-list"></div>
+        <div class="muted" style="margin-top:6px">Links do CurseForge não funcionam aqui (a API deles exige chave paga) — use o link do Modrinth do mesmo projeto.</div>
       </div>
       <div id="vanillaWarn" class="warn" style="display:none">⚠️ Você está no <b>Vanilla</b> — arquivos na pasta mods <b>não carregam</b> sem modloader. Troque para <b>Fabric</b> na barra lateral (ou instale abaixo e eu troco sozinho).</div>
       <h3>Catálogo 1-clique <span class="micro-inline">(sempre da versão + loader selecionados)</span></h3>
