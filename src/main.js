@@ -658,11 +658,8 @@ async function modAvailability(slug) {
   }
 }
 
-ipcMain.handle('mods:installModrinth', async (e, { slug, fallbacks = [], loader, mcVersion, dir = 'mods' }) => {
-  const s = await getStore();
-  const mc = mcVersion || s.get('version');
-  let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
-  if (ld === 'vanilla') ld = 'fabric';
+async function installModrinthSlug(slug, fallbacks, ctx) {
+  const { mc, ld, dir, depth, visited } = ctx;
   // Quilt roda jars de Fabric: aceita builds dos dois. Shaders/datapacks: sem filtro de loader.
   const effLoaders = dir === 'mods' ? (ld === 'quilt' ? ['fabric', 'quilt'] : [ld]) : null;
   const chain = [slug, ...(fallbacks || [])].filter(Boolean);
@@ -690,25 +687,56 @@ ipcMain.handle('mods:installModrinth', async (e, { slug, fallbacks = [], loader,
       if (!extOk) {
         throw new Error(`build inválida de ${c}`);
       }
-      const required = (best.dependencies || []).filter((d) => d.dependency_type === 'required').map((d) => d.project_id || d.file_name);
-      if (required.length) sendLog(`Dependências obrigatórias detectadas: ${required.join(', ')}.`);
-      const modsDir = path.join(activeGameDir({ ...s.store, version: mc, modloader: ld }), dir);
+      const modsDir = path.join(activeGameDir({ version: mc, modloader: ld, gameDir: ctx.gameDir }), dir);
       fs.mkdirSync(modsDir, { recursive: true });
-       const dest = safeChildPath(modsDir, file.filename);
-      if (fs.existsSync(dest)) {
+      const dest = safeChildPath(modsDir, file.filename);
+      const existed = fs.existsSync(dest);
+      if (!existed) {
+        sendLog('Baixando ' + file.filename + '...');
+        await downloadFileWithRetry(file.url, dest);
+        sendLog('Instalado: ' + dir + '/' + file.filename);
+      } else {
         sendLog('Já instalado: ' + dir + '/' + file.filename);
-        return { ok: true, file: file.filename, slug: c, loader: ld, already: true };
       }
-      sendLog('Baixando ' + file.filename + '...');
-      await downloadFileWithRetry(file.url, dest);
-      sendLog('Instalado: ' + dir + '/' + file.filename);
-      return { ok: true, file: file.filename, slug: c, loader: ld };
+      // Dependências "required" do Modrinth (ex: Waystones precisa do Balm):
+      // instala junto, senão o jogo crasha na abertura dizendo que falta dependência.
+      if (depth < 3) {
+        const reqs = (best.dependencies || []).filter((d) => d.dependency_type === 'required' && d.project_id);
+        for (const dep of reqs) {
+          if (visited.has(dep.project_id)) continue;
+          visited.add(dep.project_id);
+          try {
+            const proj = await fetchJSON(`https://api.modrinth.com/v2/project/${dep.project_id}`, { headers: { 'User-Agent': 'CraftLauncher/2.0' } });
+            if (proj && proj.slug && proj.slug !== c) {
+              sendLog(`Dependência obrigatória: ${proj.title || proj.slug}...`);
+              const r = await installModrinthSlug(proj.slug, [], { ...ctx, depth: depth + 1 });
+              if (!r.ok) sendLog(`AVISO: dependência ${proj.slug} falhou: ${r.error} — o mod pode não carregar.`);
+            }
+          } catch (depErr) {
+            sendLog(`AVISO: dependência ${dep.project_id} não resolvida: ${depErr.message}`);
+          }
+        }
+      }
+      return { ok: true, file: file.filename, slug: c, loader: ld, already: existed };
     } catch (err) {
       lastErr = err.message;
       sendLog(`Falha ${c}: ${err.message}`);
     }
   }
   return { ok: false, error: lastErr };
+}
+
+ipcMain.handle('mods:installModrinth', async (e, { slug, fallbacks = [], loader, mcVersion, dir = 'mods' }) => {
+  const s = await getStore();
+  const mc = mcVersion || s.get('version');
+  let ld = (loader || s.get('modloader') || 'fabric').toLowerCase();
+  if (ld === 'vanilla') ld = 'fabric';
+  if (dir === 'mods' && ld === 'forge' && isNewMcForForge(mc)) {
+    const msg = `Forge não existe para MC ${mc} (o loader Forge parou na 1.20.1 — o app CurseForge usa NeoForge nas versões novas). Troque o modloader para NeoForge e instale de novo.`;
+    sendLog('Mods: ' + msg);
+    return { ok: false, error: msg };
+  }
+  return installModrinthSlug(slug, fallbacks, { mc, ld, dir, depth: 0, visited: new Set(), gameDir: s.get('gameDir') });
 });
 
 // ---------- versions ----------
@@ -768,17 +796,38 @@ ipcMain.handle('versions:forge', async (e, mcVersion) => {
   } catch { return { all: [], filtered: [] }; }
 });
 
+// Prefixo das builds NeoForge para um MC: "1.21.1" -> "21.1.", "26.2" -> "26.2."
+function neoForgePrefix(mcVersion) {
+  const mc = String(mcVersion || '');
+  let m = mc.match(/^1\.(\d+)\.(\d+)/);
+  if (m) return `${m[1]}.${m[2]}.`;
+  m = mc.match(/^(\d+)\.(\d+)/);
+  if (m) return `${m[1]}.${m[2]}.`;
+  return null;
+}
+// MC exigido por uma build NeoForge: "26.2.0.88" -> "26.2", "21.1.209" -> "1.21.1"
+function neoForgeMcFor(nv) {
+  const m = String(nv).match(/^(\d+)\.(\d+)\./);
+  if (!m) return null;
+  if (m[1] === '20' || m[1] === '21') return `1.${m[1]}.${m[2]}`;
+  return `${m[1]}.${m[2]}`;
+}
+// Forge acabou na 1.20.1 — para MC novo o caminho é NeoForge (é o que o app CurseForge usa).
+function isNewMcForForge(mc) {
+  const m = String(mc || '').match(/^(\d+)\.(\d+)/);
+  if (!m) return false;
+  const maj = parseInt(m[1], 10), min = parseInt(m[2], 10);
+  return maj > 1 || (maj === 1 && min >= 21);
+}
+
 ipcMain.handle('versions:neoforge', async (e, mcVersion) => {
-  // NeoForge acompanha o minor do MC: 21.<P>.x -> MC 1.21.<P> | 20.<P>.x -> MC 1.20.<P>
-  // (NeoForge só existe a partir da 1.20.2)
+  // NeoForge acompanha o MC: 1.20.x -> "20.x.", 1.21.x -> "21.x.", 26.x -> "26.x."
+  // (só existe a partir da 1.20.2; não há NeoForge para 1.20.1 e anteriores)
   try {
     const data = await fetchJSON('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge');
     let list = (data.versions || []).slice().reverse();
+    const prefix = neoForgePrefix(mcVersion);
     if (mcVersion) {
-      const parts = String(mcVersion).split('.');
-      const prefix = parts.length >= 3
-        ? `${parts[0] === '1' && parts[1] === '21' ? '21' : parts[1] === '20' ? '20' : '?'}.${parts[2]}.`
-        : parts[1] === '21' ? '21.0.' : parts[1] === '20' ? '20.0.' : null;
       if (prefix) list = list.filter((v) => String(v).startsWith(prefix));
       else list = [];
     }
@@ -946,19 +995,20 @@ ipcMain.handle('modloader:installNeoForge', async (e, { neoVersion }) => {
     let nv = neoVersion;
     if (!nv) {
       const data = await fetchJSON('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge');
-      nv = (data.versions || []).slice(-1)[0];
-      if (!nv) throw new Error('não foi possível listar NeoForge');
+      const prefix = neoForgePrefix(s.get('version'));
+      const cands = (data.versions || []).filter((v) => prefix && String(v).startsWith(prefix));
+      nv = cands.filter((v) => !/beta|alpha/i.test(String(v))).slice(-1)[0] || cands.slice(-1)[0];
+      if (!nv) throw new Error(`não há build NeoForge compatível com MC ${s.get('version')}`);
     }
     const url = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${nv}/neoforge-${nv}-installer.jar`;
     sendLog('Baixando NeoForge installer ' + nv + '...');
     const dl = await fetch(url);
     if (!dl.ok) throw new Error('installer HTTP ' + dl.status);
-    // NeoForge 21.<P>.x exige MC 1.21.<P>: avisa cedo em vez de instalar errado
-    const m = String(nv).match(/^(\d+)\.(\d+)\./);
-    if (m) {
-      const needMC = `${m[1] === '21' ? '1.21' : m[1] === '20' ? '1.20' : '?'}.${m[2]}`;
+    // NeoForge X.Y.* exige MC correspondente: avisa cedo em vez de instalar errado
+    const needMC = neoForgeMcFor(nv);
+    if (needMC) {
       const cur = s.get('version');
-      if (needMC !== '?.' + m[2] && cur !== needMC) {
+      if (cur !== needMC) {
         sendLog(`Atenção: NeoForge ${nv} é para MC ${needMC} (você está na ${cur}). A versão será ajustada após instalar.`);
       }
     }
@@ -1020,9 +1070,10 @@ async function ensureModloaderInstalled(kind, mcVersion, root) {
     url = `https://maven.minecraftforge.net/net/minecraftforge/forge/${full}/forge-${full}-installer.jar`;
   } else {
     const data = await fetchJSON('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge');
-    const parts = String(mcVersion).split('.');
-    const prefix = `${parts[1] || '21'}.${parts[2] || '0'}.`;
-    const version = (data.versions || []).filter((v) => String(v).startsWith(prefix)).slice(-1)[0];
+    const prefix = neoForgePrefix(mcVersion);
+    const cands = (data.versions || []).filter((v) => prefix && String(v).startsWith(prefix));
+    // prefere estável (sem beta/alpha); cai para a mais recente do prefixo
+    const version = cands.filter((v) => !/beta|alpha/i.test(String(v))).slice(-1)[0] || cands.slice(-1)[0];
     if (!version) throw new Error(`não há build NeoForge compatível com ${mcVersion}`);
     url = `https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar`;
   }

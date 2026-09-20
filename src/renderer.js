@@ -256,7 +256,7 @@ async function loadLoaders() {
   // neoforge
   try {
     const n = await window.api.neoforgeVersions(mc);
-    $('neoList').textContent = n.length ? n.slice(0, 6).join('\n') : 'sem build p/ ' + mc + ' (NeoForge é 1.20.5+)';
+    $('neoList').textContent = n.length ? n.slice(0, 6).join('\n') : 'sem build p/ ' + mc + ' (tente outra versão do MC)';
     const sel = $('neoVer'); sel.innerHTML = '<option value="">mais recente (auto)</option>';
     n.slice(0, 10).forEach((v) => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
   } catch { $('neoList').textContent = 'erro de rede'; }
@@ -675,6 +675,16 @@ function renderCatalog() {
 async function installCatalog(entry, btn) {
   const isShader = (entry.dir || 'mods') !== 'mods';
   let cur = $('modloader').value || 'vanilla';
+  const mc = $('version').value;
+  const mcNew = (() => { const m = String(mc).match(/^(\d+)\.(\d+)/); return m && (parseInt(m[1], 10) > 1 || (parseInt(m[1], 10) === 1 && parseInt(m[2], 10) >= 21)); })();
+  if (!isShader && cur === 'forge' && mcNew && entry.loaders.includes('neoforge')) {
+    // Forge não existe para MC novo (só até 1.20.1): migra para NeoForge sozinho
+    cur = 'neoforge';
+    $('modloader').value = 'neoforge';
+    syncMlPills(); await collectAndSave(); refreshHero();
+    toast(`Forge não existe para MC ${mc} — trocado para NeoForge ⚡`);
+    log(`Mods: Forge indisponível para MC ${mc}, usando NeoForge.`);
+  }
   if (!isShader && !entry.loaders.includes(cur)) {
     if (cur === 'vanilla' && entry.loaders.includes('fabric')) {
       cur = 'fabric';
